@@ -126,6 +126,12 @@ git-tree-sha1 = "5c3d877ddfc2da61ce5cc1f5ce330ff97789c57c"
 uuid = "2b5f629d-d688-5b77-993f-72d75c75574e"
 version = "6.76.0"
 
+[[DiffEqCallbacks]]
+deps = ["DataStructures", "DiffEqBase", "ForwardDiff", "LinearAlgebra", "NLsolve", "OrdinaryDiffEq", "Parameters", "RecipesBase", "RecursiveArrayTools", "StaticArrays"]
+git-tree-sha1 = "35bc7f8be9dd2155336fe999b11a8f5e44c0d602"
+uuid = "459566f4-90b8-5000-8ac3-15dfb0a30def"
+version = "2.17.0"
+
 [[DiffEqJump]]
 deps = ["ArrayInterface", "Compat", "DataStructures", "DiffEqBase", "FunctionWrappers", "Graphs", "LinearAlgebra", "PoissonRandom", "Random", "RandomNumbers", "RecursiveArrayTools", "Reexport", "StaticArrays", "TreeViews", "UnPack"]
 git-tree-sha1 = "0aa2d003ec9efe2a93f93ae722de05a870ffc0b2"
