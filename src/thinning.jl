@@ -9,14 +9,14 @@ mutable struct ThinningSampler <: NonHomogeneousSampling
     end
 end
 
-function proposeNext!(sampler::ThinningSampler)
+function propose_next!(sampler::ThinningSampler)
     U = rand(Uniform())
     sampler.proposet = sampler.tspan[1] - 1.0/sampler.λmax * log(U) 
 end
 
-function sampleFirstArrival!(sampler::ThinningSampler)
+function sample_first_arrival!(sampler::ThinningSampler)
     while true
-        proposeNext!(sampler)
+        propose_next!(sampler)
         U = rand(Uniform())
         if sampler.proposet > sampler.tspan[end]
             sampler.proposet = nothing
