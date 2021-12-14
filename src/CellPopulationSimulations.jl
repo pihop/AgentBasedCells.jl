@@ -12,6 +12,7 @@ using RuntimeGeneratedFunctions
 using Roots
 using Catalyst
 using QuadGK
+using LinearAlgebra
 using Symbolics: value
 
 RuntimeGeneratedFunctions.init(@__MODULE__)
