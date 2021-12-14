@@ -4,13 +4,13 @@ struct AnalyticalModel
     tspan::Tuple{Float64, Float64}
     cme_model::Function
     partition_kernel::Function
-    first_passage_time::Function
+    division_rate::Function
 end
 
 struct AnalyticalSolverParameters
-    truncation::Int64
+    truncation::Vector{Int64}
     maxiters::Int64
-    solver::OrdinaryDiffEqAlgorithm
+    solver::Any
     rtol::Float64
     atol::Float64
     rootfinder::Roots.AbstractSecant
@@ -21,8 +21,14 @@ struct AnalyticalSolverParameters
 end
 
 mutable struct ConvergenceMonitor
-    # TODO: Monitor convergence of the results. We want both within the
-    # iteration and for different tructations.
+    # TODO: Monitor convergence of the results. Here we want within the
+    # iteration. Error control wrt truncation separately.
+    birth_dists::Array{Vector{Float64}}
+    growth_factor::Array{Float64}
+
+    function ConvergenceMonitor()
+        new([], [])
+    end
 end
 
 mutable struct AnalyticalResults
@@ -38,13 +44,27 @@ mutable struct AnalyticalResults
     end
 end
 
+function first_passage_time(x::Union{Vector{Float64}, Vector{Int64}}, 
+    τ::Float64, p::Vector{Float64}, Π; results)
+    # TODO: in general need to pass in also the reaction network to see which
+    # indices correspond to which counts. 
+    model = results.model
+
+    states = CartesianIndices(zeros(results.solver.truncation...))
+    states = map(x -> x.I .- tuple(I), states)
+    
+    # First passage time for division.
+    return model.division_rate.(states, τ, p) .* Π(τ) 
+end
+
 function division_time_dist(results::AnalyticalResults)
     model = results.model
     solver = results.solver
 
     cme = model.cme_model(results.birth_dist, model.tspan, model.parameters, solver.truncation)
-    cme_solution = solve(cme, solver.solver; cb=PositiveDomain())# isoutofdomain=(u,p,t) -> any(x -> x .< 0, u), atol=1e-8) 
-    return τ -> sum(model.first_passage_time(results.birth_dist, τ, model.parameters, cme_solution))
+    cme_solution = solve(cme, solver.solver; cb=PositiveDomain())
+    return τ -> sum(
+        first_passage_time(results.birth_dist, τ, model.parameters, cme_solution; results=results))
 end
 
 function division_dist(results::AnalyticalResults) 
@@ -52,9 +72,9 @@ function division_dist(results::AnalyticalResults)
     solver = results.solver
 
     cme = model.cme_model(results.birth_dist, model.tspan, model.parameters, solver.truncation)
-    cme_solution = solve(cme, solver.solver; cb=PositiveDomain())# isoutofdomain=(u,p,t) -> any(x -> x .< 0, u), atol=1e-8) 
+    cme_solution = solve(cme, solver.solver; cb=PositiveDomain())
     return quadgk(
-        s -> model.first_passage_time(results.birth_dist, s, model.parameters, cme_solution), 
+        s -> first_passage_time(results.birth_dist, s, model.parameters, cme_solution; results=results), 
         model.tspan[1], model.tspan[2], rtol=solver.rtol)[1]
 end
 
@@ -63,9 +83,11 @@ function division_dist_hist(results::AnalyticalResults)
     solver = results.solver
 
     cme = model.cme_model(results.birth_dist, model.tspan, model.parameters, solver.truncation)
-    cme_solution = solve(cme, solver.solver; cb=PositiveDomain())# isoutofdomain=(u,p,t) -> any(x -> x .< 0, u), atol=1e-8) 
+    cme_solution = solve(cme, solver.solver; cb=PositiveDomain())
     return quadgk(
-        s -> 2 * exp(-results.growth_factor * s) * model.first_passage_time(results.birth_dist, s, model.parameters, cme_solution), 
+        s -> 2 * 
+            exp(-results.growth_factor * s) * 
+            first_passage_time(results.birth_dist, s, model.parameters, cme_solution; results=results), 
         model.tspan[1], model.tspan[2], rtol=solver.rtol)[1]
 end
 
@@ -73,7 +95,8 @@ function update_growth_factor!(model::AnalyticalModel, results::AnalyticalResult
     solver::AnalyticalSolverParameters, cme_solution::ODESolution)
     # Find marginal first passage time ν(t). This is normalised by
     # definition -- in the code up to numerical accuracy. 
-    marginalfpt(τ) = sum(model.first_passage_time(results.birth_dist, τ, model.parameters, cme_solution))
+    marginalfpt(τ) = sum(
+        first_passage_time(results.birth_dist, τ, model.parameters, cme_solution; results=results))
 
     # Root finding for the population growth rate λ.
     f(λ) = 1 - 2 *  quadgk(s -> marginalfpt(s) * exp(-λ*s), model.tspan[1], model.tspan[2], rtol=solver.rtol)[1]
@@ -86,10 +109,14 @@ function update_birth_dist!(model::AnalyticalModel, results::AnalyticalResults,
     # Calculated new boundary condition given λ and CMEsol (Π(x|τ)).
     boundary_cond_integrand(τ) = sum(
         model.partition_kernel.(collect.(axes(results.birth_dist))[1] .- 1, solver.truncation) .* 
-        model.first_passage_time(results.birth_dist, τ, model.parameters, cme_solution) .* 2 .* exp(-results.growth_factor*τ))
-
-    results.birth_dist = quadgk(s -> boundary_cond_integrand(s), model.tspan[1], model.tspan[2], rtol=solver.rtol)[1]
+        first_passage_time(results.birth_dist, τ, model.parameters, cme_solution; results=results) .* 2 .* exp(-results.growth_factor*τ))
+    results.birth_dist = quadgk(s -> boundary_cond_integrand(s), model.tspan[1], model.tspan[2], rtol=1e-2)[1]
     results.birth_dist = results.birth_dist / sum(results.birth_dist)
+end
+
+function log_convergece!(convergence::ConvergenceMonitor, results::AnalyticalResults)
+    push!(convergence.birth_dists, results.birth_dist)
+    push!(convergence.growth_factor, results.growth_factor)
 end
 
 function solvecme(model::AnalyticalModel,
@@ -97,6 +124,10 @@ function solvecme(model::AnalyticalModel,
 
     # Every interation refines birth_dist (Π(x|0)) and growth factor λ.
     results = AnalyticalResults()
+    results.model = model
+    results.solver = solver
+
+    convergence = ConvergenceMonitor()
     results.birth_dist = model.xinit
     i::Int64 = 0
 
@@ -109,13 +140,14 @@ function solvecme(model::AnalyticalModel,
 
         update_growth_factor!(model, results, solver, cme_solution)
         update_birth_dist!(model, results, solver, cme_solution)
+        log_convergece!(convergence, results)
 
         i += 1
         ProgressMeter.next!(progress, showvalues = [("Current iteration", i), ("Growth factor λₙ", results.growth_factor)])
     end
 
-    results.model = model
-    results.solver = solver
+
+    results.convergence_monitor = convergence
 
     return results 
 end
