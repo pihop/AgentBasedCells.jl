@@ -8,14 +8,32 @@ mutable struct CellState
     division_sampler::NonHomogeneousSampling
 end
 
+function partition_cell(cell::CellState, birth_time::Float64)
+    # Parition and return the Array of cells.    
+    partition = [] 
+    partition_ = [] 
+    for s in cell.state
+        molecule_number = rand(Binomial(Int(s), 0.5))
+        push!(partition, molecule_number)
+        push!(partition_, Int(s) - molecule_number)  
+    end
+
+    return [CellState(partition, 0.0, birth_time, sum(partition), 0.0, ThinningSampler()), 
+            CellState(partition_, 0.0, birth_time, sum(partition_), 0.0, ThinningSampler())]
+end
+
+function apply_chemostat!(cell_population::Array{CellState}, pop_size_max::Int64)
+    if length(cell_population) > pop_size_max
+        splice!(cell_population, sort(sample(1:length(cell_population), length(cell_population) - pop_size_max; replace=false)))
+    end
+end
+
 mutable struct CellSimulationModel
     xinit::Vector{Float64}
     model_parameters::Vector{Float64}
     cell_population::Array{CellState}
     molecular_model::Union{JumpProblem, ODEProblem, SDEProblem}
     division_model::Function
-    partition_cell::Function
-    chemostat::Function
 end
 
 struct CellSimulationParameters
@@ -125,10 +143,10 @@ function simulate_population(model::CellSimulationModel,
     compute_division_times!(model, simulation_params, cell_population)
 
     while t < simulation_params.tspan[end]
-        model.chemostat(cell_population, simulation_params.max_pop)
+        apply_chemostat!(cell_population, simulation_params.max_pop)
         next_division_time, cell_idx = findmin(cell_division_time.(cell_population))
 
-        daughter_cells = model.partition_cell(cell_population[cell_idx], next_division_time)
+        daughter_cells = partition_cell(cell_population[cell_idx], next_division_time)
         compute_division_times!(model, simulation_params, daughter_cells)
         log_results!(simulation_results, cell_population[cell_idx], daughter_cells)
 
@@ -155,7 +173,7 @@ function simulate_population_slow(model::CellSimulationModel,
     cell_population = model.cell_population
 
     while t < simulation_params.tspan[end] 
-        model.chemostat(cell_population, simulation_params.max_pop)
+        apply_chemostat!(cell_population, simulation_params.max_pop)
         _cell_population = deepcopy(cell_population)
         new_cell_population::Array{CellState} = []
 
@@ -176,7 +194,7 @@ function simulate_population_slow(model::CellSimulationModel,
                     push!(new_cell_population, cell)
                 else
                     # Division to daughter cells. 
-                    daughter_cells = model.partition_cell(cell, t + division_time - cell.τ)
+                    daughter_cells = partition_cell(cell, t + division_time - cell.τ)
 
                     # Remove the mother cell and replace with daughters.
                     push!(_new_cell_population, daughter_cells...)
