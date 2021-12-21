@@ -35,6 +35,7 @@ mutable struct AnalyticalResults
     birth_dist::Vector{Float64}
     division_dist::Vector{Float64}
     growth_factor::Float64 
+    cme_solution
     model::AnalyticalModel
     solver::AnalyticalSolverParameters
     convergence_monitor::ConvergenceMonitor
@@ -54,40 +55,28 @@ function first_passage_time(x::Union{Vector{Float64}, Vector{Int64}},
     states = map(x -> x.I .- tuple(I), states)
     
     # First passage time for division.
-    return model.division_rate.(states, τ, p) .* Π(τ) 
+    return model.division_rate.(states, τ, fill(p, size(states))) .* Π(τ) 
 end
 
 function division_time_dist(results::AnalyticalResults)
     model = results.model
-    solver = results.solver
-
-    cme = model.cme_model(results.birth_dist, model.tspan, model.parameters, solver.truncation)
-    cme_solution = solve(cme, solver.solver; cb=PositiveDomain())
     return τ -> sum(
-        first_passage_time(results.birth_dist, τ, model.parameters, cme_solution; results=results))
+        first_passage_time(results.birth_dist, τ, model.parameters, results.cme_solution; results=results))
 end
 
 function division_dist(results::AnalyticalResults) 
     model = results.model
-    solver = results.solver
-
-    cme = model.cme_model(results.birth_dist, model.tspan, model.parameters, solver.truncation)
-    cme_solution = solve(cme, solver.solver; cb=PositiveDomain())
     return quadgk(
-        s -> first_passage_time(results.birth_dist, s, model.parameters, cme_solution; results=results), 
+        s -> first_passage_time(results.birth_dist, s, model.parameters, results.cme_solution; results=results), 
         model.tspan[1], model.tspan[2], rtol=solver.rtol)[1]
 end
 
 function division_dist_hist(results::AnalyticalResults) 
     model = results.model
-    solver = results.solver
-
-    cme = model.cme_model(results.birth_dist, model.tspan, model.parameters, solver.truncation)
-    cme_solution = solve(cme, solver.solver; cb=PositiveDomain())
     return quadgk(
         s -> 2 * 
             exp(-results.growth_factor * s) * 
-            first_passage_time(results.birth_dist, s, model.parameters, cme_solution; results=results), 
+            first_passage_time(results.birth_dist, s, model.parameters, results.cme_solution; results=results), 
         model.tspan[1], model.tspan[2], rtol=solver.rtol)[1]
 end
 
@@ -146,7 +135,9 @@ function solvecme(model::AnalyticalModel,
         ProgressMeter.next!(progress, showvalues = [("Current iteration", i), ("Growth factor λₙ", results.growth_factor)])
     end
 
-
+    cme = model.cme_model(results.birth_dist, model.tspan, model.parameters, solver.truncation)
+    cme_solution = solve(cme, solver.solver; cb=PositiveDomain(), atol=solver.atol) 
+    results.cme_solution = cme_solution
     results.convergence_monitor = convergence
 
     return results 
