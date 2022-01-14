@@ -45,6 +45,18 @@ mutable struct AnalyticalResults
     end
 end
 
+function marginal_size_distribution(result::AnalyticalResults)
+    λ = result.growth_factor
+    Π(τ) = λ * 
+        quadgk(s -> division_time_dist(result)(s), τ, result.model.tspan[end]; rtol=result.solver.rtol)[1]
+    
+    marginalΠ = quadgk(s -> result.cme_solution(s) * Π(s), 
+        result.model.tspan[1], result.model.tspan[end]; rtol=result.solver.rtol)[1]
+    marginalΠ = marginalΠ ./ sum(marginalΠ)
+    return marginalΠ
+#    return sum(marginalΠ .* collect(0:length(marginalΠ)-1))
+end
+
 function first_passage_time(x::Union{Vector{Float64}, Vector{Int64}}, 
     τ::Float64, p::Vector{Float64}, Π; results)
     # TODO: in general need to pass in also the reaction network to see which
@@ -68,7 +80,7 @@ function division_dist(results::AnalyticalResults)
     model = results.model
     return quadgk(
         s -> first_passage_time(results.birth_dist, s, model.parameters, results.cme_solution; results=results), 
-        model.tspan[1], model.tspan[2], rtol=solver.rtol)[1]
+        model.tspan[1], model.tspan[2], rtol=results.solver.rtol)[1]
 end
 
 function division_dist_hist(results::AnalyticalResults) 
@@ -77,7 +89,7 @@ function division_dist_hist(results::AnalyticalResults)
         s -> 2 * 
             exp(-results.growth_factor * s) * 
             first_passage_time(results.birth_dist, s, model.parameters, results.cme_solution; results=results), 
-        model.tspan[1], model.tspan[2], rtol=solver.rtol)[1]
+        model.tspan[1], model.tspan[2], rtol=results.solver.rtol)[1]
 end
 
 function update_growth_factor!(model::AnalyticalModel, results::AnalyticalResults, 
