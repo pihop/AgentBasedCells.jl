@@ -3,7 +3,7 @@ mutable struct CellState
     state::Array{Float64}
     τ::Float64 
     birth_time::Float64
-    birth_size::Float64
+    birth_state::Array{Float64}
     division_time::Float64
     division_sampler::NonHomogeneousSampling
 end
@@ -18,8 +18,8 @@ function partition_cell(cell::CellState, birth_time::Float64)
         push!(partition_, Int(s) - molecule_number)  
     end
 
-    return [CellState(partition, 0.0, birth_time, sum(partition), 0.0, ThinningSampler()), 
-            CellState(partition_, 0.0, birth_time, sum(partition_), 0.0, ThinningSampler())]
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), 
+            CellState(partition_, 0.0, birth_time, partition_, 0.0, ThinningSampler())]
 end
 
 function apply_chemostat!(cell_population::Array{CellState}, pop_size_max::Int64)
@@ -56,9 +56,10 @@ mutable struct CellSimulationResults
     molecules_at_division_all::Vector{Int64}
     molecules_at_birth::Vector{Int64}
     molecules_at_birth_all::Vector{Int64}
+    final_population::Array{Vector{Float64}}
 
     function CellSimulationResults()
-        new([], [], [], [], [], [], [], [])
+        new([], [], [], [], [], [], [], [], [])
     end
 end
 
@@ -66,12 +67,16 @@ function Base.convert(::Type{Dict}, results::CellSimulationResults)
     return Dict(string.(fieldnames(CellSimulationResults)) .=> getfield.(Ref(results), fieldnames(CellSimulationResults)))
 end
 
+function final_cell_sizes(results::CellSimulationResults)
+    return [cell.state for cell in results.final_population]
+end
+
 function cell_size(cell_state::CellState)
     return sum(cell_state.state)
 end
 
 function cell_birth_size(cell_state::CellState)
-    return cell_state.birth_size
+    return sum(cell_state.birth_state)
 end
 
 function cell_age(cell_state::CellState)
@@ -89,11 +94,26 @@ end
 function simulate_molecular(molecular_model::JumpProblem,
     cell_state::CellState, 
     model_parameters::Vector{Float64}, 
-    tspan::Tuple{Float64, Float64})
+    tspan::Tuple{Float64, Float64};
+    from_birth::Bool=false)
     # TODO: We can use multiple dispatch to define versions for ODEProblem,
     # SDEProblem or other for molecularModel.
     
-    jprob = remake(molecular_model, u0=cell_state.state, p=model_parameters, tspan=tspan)
+    if from_birth == false
+        jprob = remake(molecular_model, u0=cell_state.state, p=model_parameters, tspan=tspan)
+        return solve(jprob, SSAStepper())
+    elseif from_birth == true
+        jprob = remake(molecular_model, u0=cell_state.birth_state, p=model_parameters, tspan=tspan)
+        return solve(jprob, SSAStepper())
+    end
+end
+
+function simulate_molecular_from_birth(molecular_model::JumpProblem,
+    cell_state::CellState,
+    model_parameters::Vector{Float64},
+    tspan::Tuple{Float64, Float64})
+
+    jprob = remake(molecular_model, u0=cell_state.birth_state, p=model_parameters, tspan=tspan)
     return solve(jprob, SSAStepper())
 end
 
@@ -103,7 +123,7 @@ function compute_division_times!(model::CellSimulationModel, simulation_params::
     for (index, cell) in collect(enumerate(cell_population))
         while true
             sim = simulate_molecular(model.molecular_model, 
-                cell, model.model_parameters, (cell.τ, cell.τ + simulation_params.Δt + simulation_params.jitt))
+                cell, model.model_parameters, (cell.τ, cell.τ + simulation_params.Δt + simulation_params.jitt);)
     
             division_time = model.division_model(sim, 
                 model.model_parameters, cell.division_sampler, (cell.τ, cell.τ + simulation_params.Δt))
@@ -129,6 +149,15 @@ function log_results!(simulation_results, mother, daughters)
     push!(simulation_results.division_times_all, (cell_division_time.(daughters) .- cell_birth_time.(daughters))...)
     push!(simulation_results.molecules_at_birth_all, cell_birth_size.(daughters)...)
     push!(simulation_results.molecules_at_division_all, cell_size.(daughters)...)
+end
+
+function states_at_last_division!(model, simulation_results, division_time, cell_population)
+    for cell in cell_population
+        sim = simulate_molecular(model.molecular_model, cell, model.model_parameters,
+            (0.0, division_time - cell.birth_time); from_birth=true)
+         
+        push!(simulation_results.final_population, sim.u[end])
+    end
 end
 
 function simulate_population(model::CellSimulationModel,
@@ -158,6 +187,8 @@ function simulate_population(model::CellSimulationModel,
         t = next_division_time
         ProgressMeter.next!(progress, showvalues = [("Time", t), ("Population size", length(cell_population))])
     end
+
+    states_at_last_division!(model, simulation_results, t, cell_population)
     return simulation_results 
 end
 
