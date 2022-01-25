@@ -29,12 +29,13 @@ function apply_chemostat!(cell_population::Array{CellState}, pop_size_max::Int64
 end
 
 mutable struct CellSimulationModel
-    xinit::Vector{Float64}
-    model_parameters::Vector{Float64}
+    experiment::AbstractExperimentSetup
+    #xinit::Vector{Float64}
+    #model_parameters::Vector{Float64}
     cell_population::Array{CellState}
     molecular_model::Union{JumpProblem, ODEProblem, SDEProblem}
     division_model::Function
-end
+end 
 
 struct CellSimulationParameters
     tspan::Tuple{Float64, Float64}
@@ -57,10 +58,15 @@ mutable struct CellSimulationResults
     molecules_at_birth::Vector{Int64}
     molecules_at_birth_all::Vector{Int64}
     final_population::Array{Vector{Float64}}
+    model::CellSimulationModel
 
-    function CellSimulationResults()
-        new([], [], [], [], [], [], [], [], [])
+    function CellSimulationResults(model::CellSimulationModel)
+        new([], [], [], [], [], [], [], [], [], model)
     end
+end
+
+function Base.show(::IO, ::CellSimulationResults)
+    println("Direct stochastic simulations results for cell population model.")
 end
 
 function Base.convert(::Type{Dict}, results::CellSimulationResults)
@@ -117,20 +123,21 @@ function simulate_molecular_from_birth(molecular_model::JumpProblem,
     return solve(jprob, SSAStepper())
 end
 
-function compute_division_times!(model::CellSimulationModel, simulation_params::CellSimulationParameters, cell_population::Array{CellState})
+function compute_division_times!(model::CellSimulationModel, cell_population::Array{CellState})
     # Simulate all cells up to next division.
+    experiment = model.experiment
    
     for (index, cell) in collect(enumerate(cell_population))
         while true
             sim = simulate_molecular(model.molecular_model, 
-                cell, model.model_parameters, (cell.τ, cell.τ + simulation_params.Δt + simulation_params.jitt);)
+                cell, experiment.model_parameters, (cell.τ, cell.τ + experiment.Δt + experiment.jitt);)
     
             division_time = model.division_model(sim, 
-                model.model_parameters, cell.division_sampler, (cell.τ, cell.τ + simulation_params.Δt))
+                experiment.model_parameters, cell.division_sampler, (cell.τ, cell.τ + experiment.Δt))
     
             if division_time == nothing
-                cell.state = sim(cell.τ + simulation_params.Δt)
-                cell.τ = cell.τ + simulation_params.Δt 
+                cell.state = sim(cell.τ + experiment.Δt)
+                cell.τ = cell.τ + experiment.Δt 
             else
                 cell.state = sim(division_time)
                 cell.τ = division_time 
@@ -152,31 +159,32 @@ function log_results!(simulation_results, mother, daughters)
 end
 
 function states_at_last_division!(model, simulation_results, division_time, cell_population)
+    experiment = model.experiment
     for cell in cell_population
-        sim = simulate_molecular(model.molecular_model, cell, model.model_parameters,
+        sim = simulate_molecular(model.molecular_model, cell, experiment.model_parameters,
             (0.0, division_time - cell.birth_time); from_birth=true)
          
         push!(simulation_results.final_population, sim.u[end])
     end
 end
 
-function simulate_population(model::CellSimulationModel,
-        simulation_params::CellSimulationParameters)
+function simulate_population(model::CellSimulationModel)
+    experiment = model.experiment
 
     # Progress monitor.
-    t::Float64 = simulation_params.tspan[1]        
-    simulation_results = CellSimulationResults()
+    t::Float64 = experiment.tspan_simulation[1]        
+    simulation_results = CellSimulationResults(model)
     progress = ProgressUnknown()
     # Initial cell population.
     cell_population = model.cell_population
-    compute_division_times!(model, simulation_params, cell_population)
+    compute_division_times!(model, cell_population)
 
-    while t < simulation_params.tspan[end]
-        apply_chemostat!(cell_population, simulation_params.max_pop)
+    while t < experiment.tspan_simulation[end]
+        apply_chemostat!(cell_population, experiment.max_pop)
         next_division_time, cell_idx = findmin(cell_division_time.(cell_population))
 
         daughter_cells = partition_cell(cell_population[cell_idx], next_division_time)
-        compute_division_times!(model, simulation_params, daughter_cells)
+        compute_division_times!(model, daughter_cells)
         log_results!(simulation_results, cell_population[cell_idx], daughter_cells)
 
         # Remove the mother cell and replace with daughters.
@@ -198,7 +206,7 @@ function simulate_population_slow(model::CellSimulationModel,
 
     # Progress monitor.
     t::Float64 = simulation_params.tspan[1]        
-    simulation_results = CellSimulationResults()
+    simulation_results = CellSimulationResults(model)
     progress = Progress(Int((simulation_params.tspan[end]-simulation_params.tspan[1])/simulation_params.Δt);)
     # Initial cell population.
     cell_population = model.cell_population
@@ -214,10 +222,10 @@ function simulate_population_slow(model::CellSimulationModel,
 
                 sim_time = t + simulation_params.Δt - cell.birth_time - cell.τ   
                 sim = simulate_molecular(model.molecular_model, 
-                    cell, model.model_parameters, (cell.τ, cell.τ + sim_time + simulation_params.jitt))
+                    cell, model.experiment.model_parameters, (cell.τ, cell.τ + sim_time + simulation_params.jitt))
 
                 division_time = model.division_model(sim, 
-                    model.model_parameters, cell.division_sampler, (cell.τ, cell.τ + sim_time))
+                    model.experiment.model_parameters, cell.division_sampler, (cell.τ, cell.τ + sim_time))
 
                 if division_time == nothing
                     cell.state = sim(cell.τ + sim_time)
