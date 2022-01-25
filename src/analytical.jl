@@ -45,16 +45,15 @@ mutable struct AnalyticalResults
     end
 end
 
-function marginal_size_distribution(result::AnalyticalResults)
+function marginal_size_distribution(result::AnalyticalResults; rtol=1e-8)
     λ = result.growth_factor
     Π(τ) = λ * 
         quadgk(s -> division_time_dist(result)(s), τ, result.model.tspan[end]; rtol=result.solver.rtol)[1]
     
     marginalΠ = quadgk(s -> result.cme_solution(s) * Π(s), 
-        result.model.tspan[1], result.model.tspan[end]; rtol=result.solver.rtol)[1]
+        result.model.tspan[1], result.model.tspan[end]; rtol=rtol)[1]
     marginalΠ = marginalΠ ./ sum(marginalΠ)
     return marginalΠ
-#    return sum(marginalΠ .* collect(0:length(marginalΠ)-1))
 end
 
 function first_passage_time(x::Union{Vector{Float64}, Vector{Int64}}, 
@@ -67,7 +66,7 @@ function first_passage_time(x::Union{Vector{Float64}, Vector{Int64}},
     states = map(x -> x.I .- tuple(I), states)
     
     # First passage time for division.
-    return model.division_rate.(states, τ, fill(p, size(states))) .* Π(τ) 
+    return model.division_rate.(states, fill(p, size(states)), τ) .* Π(τ) 
 end
 
 function division_time_dist(results::AnalyticalResults)
