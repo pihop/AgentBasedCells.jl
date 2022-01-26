@@ -60,6 +60,10 @@ function marginal_size_distribution!(result::AnalyticalResults; rtol=1e-8)
     result.marginal_size = marginalΠ ./ sum(marginalΠ)
 end
 
+function mean_marginal_size(result::AnalyticalResults;)
+    return sum(result.marginal_size .* collect(0:length(result.marginal_size)-1)) 
+end
+
 function first_passage_time(x::Union{Vector{Float64}, Vector{Int64}}, 
     τ::Float64, p::Vector{Float64}, Π; results)
     # TODO: in general need to pass in also the reaction network to see which
