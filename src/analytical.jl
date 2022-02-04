@@ -13,7 +13,7 @@ struct AnalyticalSolverParameters
     atol::Float64
     rootfinder::Roots.AbstractSecant
 
-    function AnalyticalSolverParameters(truncation, maxiters;solver=Vern7(), rootfinder=Order1(), rtol=1e-8, atol=1e-8)
+    function AnalyticalSolverParameters(truncation, maxiters;solver=Vern7(), rootfinder=Order1(), rtol=1e-6, atol=1e-6)
         new(truncation, maxiters, solver, rtol, atol, rootfinder)
     end
 end
@@ -50,14 +50,20 @@ function Base.show(::IO, ::AnalyticalResults)
     println("Analytical computation results for cell population model.")
 end
 
-function marginal_size_distribution!(result::AnalyticalResults; rtol=1e-8)
+function marginal_size_distribution!(result::AnalyticalResults; rtol=1e-6, atol=1e-6)
+    println("Calculating marginal size ...")
     λ = result.growth_factor
-    Π(τ) = λ * 
-        quadgk(s -> division_time_dist(result)(s), τ, result.model.experiment.tspan_analytical[end]; rtol=result.solver.rtol)[1]
+    Π(τ) = λ *
+        hquadrature(s -> division_time_dist(result)(s), τ, result.model.experiment.tspan_analytical[end]; abstol=atol)[1]
     
-    marginalΠ = quadgk(s -> result.cme_solution(s) * Π(s), 
-        result.model.experiment.tspan_analytical[1], result.model.experiment.tspan_analytical[end]; rtol=rtol)[1]
+    telaps = @elapsed marginalΠ = hquadrature(
+        length(result.birth_dist), 
+        (s,v) -> v[:] = result.cme_solution(s) * Π(s), 
+        result.model.experiment.tspan_analytical[1], 
+        result.model.experiment.tspan_analytical[end]; abstol=atol)[1]
+
     result.marginal_size = marginalΠ ./ sum(marginalΠ)
+    println("Integration complete, took $telaps seconds.")
 end
 
 function mean_marginal_size(result::AnalyticalResults;)
@@ -65,7 +71,7 @@ function mean_marginal_size(result::AnalyticalResults;)
 end
 
 function first_passage_time(x::Union{Vector{Float64}, Vector{Int64}}, 
-    τ::Float64, p::Vector{Float64}, Π; results)
+    τ::Real, p::Vector{Float64}, Π; results)
     # TODO: in general need to pass in also the reaction network to see which
     # indices correspond to which counts. 
     model = results.model
@@ -87,19 +93,37 @@ end
 function division_dist(results::AnalyticalResults) 
     model = results.model
     experiment = results.model.experiment
-    return quadgk(
-        s -> first_passage_time(results.birth_dist, s, experiment.model_parameters, results.cme_solution; results=results), 
-        experiment.tspan_analytical[1], experiment.tspan_analytical[2], rtol=results.solver.rtol)[1]
+    return hquadrature(
+        length(results.birth_dist),
+        (s,v) -> v[:] = first_passage_time(
+            results.birth_dist, 
+            s, 
+            experiment.model_parameters, 
+            results.cme_solution; 
+            results=results), 
+        experiment.tspan_analytical[1], 
+        experiment.tspan_analytical[2], 
+        reltol=results.solver.rtol, 
+        abstol=results.solver.atol)[1]
 end
 
 function division_dist_hist(results::AnalyticalResults) 
     model = results.model
     experiment = results.model.experiment
-    return quadgk(
-        s -> 2 * 
+    return hquadrature(
+        length(results.birth_dist),
+        (s,v) -> v[:] = 2 * 
             exp(-results.growth_factor * s) * 
-            first_passage_time(results.birth_dist, s, experiment.model_parameters, results.cme_solution; results=results), 
-        experiment.tspan_analytical[1], experiment.tspan_analytical[2], rtol=results.solver.rtol)[1]
+            first_passage_time(
+                results.birth_dist, 
+                s, 
+                experiment.model_parameters, 
+                results.cme_solution; 
+                results=results), 
+        experiment.tspan_analytical[1], 
+        experiment.tspan_analytical[2], 
+        reltol=results.solver.rtol, 
+        abstol=results.solver.atol)[1]
 end
 
 function update_growth_factor!(model::AnalyticalModel, results::AnalyticalResults, 
@@ -112,7 +136,13 @@ function update_growth_factor!(model::AnalyticalModel, results::AnalyticalResult
         first_passage_time(results.birth_dist, τ, experiment.model_parameters, cme_solution; results=results))
 
     # Root finding for the population growth rate λ.
-    f(λ) = 1 - 2 *  quadgk(s -> marginalfpt(s) * exp(-λ*s), experiment.tspan_analytical[1], experiment.tspan_analytical[2], rtol=solver.rtol)[1]
+    f(λ) = 1 - 2 *  hquadrature(
+        s -> marginalfpt(s) * exp(-λ*s), 
+        experiment.tspan_analytical[1], 
+        experiment.tspan_analytical[2], 
+        reltol=solver.rtol, 
+        abstol=results.solver.atol)[1]
+
     results.growth_factor = find_zero(f, 0, solver.rootfinder)
 end
 
@@ -123,9 +153,25 @@ function update_birth_dist!(model::AnalyticalModel, results::AnalyticalResults,
 
     # Calculated new boundary condition given λ and CMEsol (Π(x|τ)).
     boundary_cond_integrand(τ) = sum(
-        model.partition_kernel.(collect.(axes(results.birth_dist))[1] .- 1, solver.truncation) .* 
-        first_passage_time(results.birth_dist, τ, experiment.model_parameters, cme_solution; results=results) .* 2 .* exp(-results.growth_factor*τ))
-    results.birth_dist = quadgk(s -> boundary_cond_integrand(s), experiment.tspan_analytical[1], experiment.tspan_analytical[2], rtol=1e-2)[1]
+        model.partition_kernel.(
+            collect.(axes(results.birth_dist))[1] .- 1, 
+            solver.truncation) 
+        .* first_passage_time(
+            results.birth_dist, 
+            τ, 
+            experiment.model_parameters, 
+            cme_solution; 
+            results=results) 
+        .* 2 .*exp(-results.growth_factor*τ))
+
+    results.birth_dist = hquadrature(
+        length(results.birth_dist),
+        (s,v) -> v[:] = boundary_cond_integrand(s), 
+        experiment.tspan_analytical[1], 
+        experiment.tspan_analytical[2], 
+        reltol=results.solver.rtol,
+        abstol=results.solver.atol)[1]
+
     results.birth_dist = results.birth_dist / sum(results.birth_dist)
 end
 
