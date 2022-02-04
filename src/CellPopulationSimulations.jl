@@ -13,8 +13,10 @@ using RuntimeGeneratedFunctions
 using Roots
 using Catalyst
 using QuadGK
+using Cubature
 using LinearAlgebra
 using Symbolics: value
+using SymbolicUtils
 using IntervalArithmetic: Interval
 using IntervalRootFinding
 
@@ -31,6 +33,7 @@ include("symbolics.jl")
 include("results.jl")
 include("effective_dilution.jl")
 include("experiment.jl")
+include("stochastic_dilution.jl")
 
 export AbstractExperimentSetup
 export AnalyticalModel, AnalyticalResults, AnalyticalSolverParameters
@@ -49,6 +52,10 @@ export Interval
 
 export PopulationExperimentSetup
 
+export ParameterStudySetup
+export simulation_prange, effective_prange
+
+export StochasticDilutionModel, birth_death_ss!, mean_steady_state
 
 export BurstyReactionModel
 
