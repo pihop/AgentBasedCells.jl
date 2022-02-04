@@ -12,6 +12,19 @@
     effective_dilution_rn::ReactionSystem
 end
 
+function run_analytical(experiment::T; iters = 10, kwargs...) where T<:AbstractExperimentSetup
+    model = CellPopulationModel(
+        experiment.molecular_model_rn, 
+        experiment.division_rate, 
+        BinomialKernel(0.5))
+
+    approximation = FiniteStateApprox(experiment.truncation, experiment.tspan_analytical)  
+    solver = AnalyticalSolverParameters(experiment.truncation, iters; kwargs...)
+
+    return solvecme(model, experiment, approximation, solver)
+end
+
+
 @kwdef struct ParameterStudySetup <: AbstractExperimentSetup 
     bifurcation_index::Int64
     parameter_span::Tuple{Float64, Float64}
@@ -49,3 +62,5 @@ end
 function effective_prange(setup::ParameterStudySetup)
     return range(setup.parameter_span[1], step = setup.effective_pstep, stop = setup.parameter_span[2])
 end
+
+
