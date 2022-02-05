@@ -27,3 +27,26 @@ function sample_first_arrival!(sampler::ThinningSampler)
     end
 end
 
+function sample_next_division(
+    cell_trajectory,
+    tspan,
+    model::AbstractSimulationModel,
+    sampler::ThinningSampler)
+
+    # Aim is to return the first jump time of NHPP with rate λ(t, f(t)) where
+    # f(t) is the CellTrajectory.
+    # How do we find λ such that λ ≥ λ(t, f(t)) for all t in general.
+    # f(t) in our case monotonic so just take the end point of tspan.
+    
+    sampler.λmax = model.model.division_rate(
+        cell_trajectory(tspan[end]), 
+        parameters(model.experiment), 
+        tspan[end])
+
+    sampler.λ = t -> model.model.division_rate(cell_trajectory(t), parameters(model.experiment), t)
+    sampler.tspan = tspan 
+    t = sample_first_arrival!(sampler)
+    return t 
+end
+
+

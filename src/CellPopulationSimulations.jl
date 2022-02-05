@@ -19,22 +19,21 @@ using IntervalArithmetic: Interval
 using IntervalRootFinding
 using Roots
 
-abstract type AbstractExperimentSetup end
-include("experiment.jl")
-export AbstractExperimentSetup, run_analytical
-
 abstract type NonHomogeneousSampling end
-using Distributions
-include("thinning.jl")
-
+abstract type AbstractSimulationModel end
 abstract type AbstractPartitionKernel end
+abstract type AbstractExperimentSetup end
+abstract type AbstractPopulationModel end
+abstract type AbstractAnalyticalApprox end
+
 include("partition_kernels.jl")
 export BinomialKernel 
 
-abstract type AbstractPopulationModel end
 include("model.jl")
 
-abstract type AbstractAnalyticalApprox end
+using Distributions
+include("thinning.jl")
+
 using FiniteStateProjection
 using SparseArrays
 include("analytical_approximations.jl")
@@ -50,6 +49,8 @@ include("symbolics.jl")
 include("effective_dilution.jl")
 include("stochastic_dilution.jl")
 
+include("experiment.jl")
+export AbstractExperimentSetup, run_analytical, run_simulation
 
 export AnalyticalModel, AnalyticalResults, AnalyticalSolverParameters
 export marginal_size_distribution!, mean_marginal_size
