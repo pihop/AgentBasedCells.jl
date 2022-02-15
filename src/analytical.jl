@@ -59,7 +59,7 @@ function marginal_size_distribution!(results::AnalyticalResults; rtol=1e-6, atol
 end
 
 function mean_marginal_size(results::AnalyticalResults;)
-    return sum(results.results[:marginal_size] .* collect(0:length(result.results[:marginal_size])-1)) 
+    return sum(results.results[:marginal_size] .* collect(0:length(results.results[:marginal_size])-1)) 
 end
 
 function first_passage_time(

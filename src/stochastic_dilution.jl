@@ -17,7 +17,7 @@ end
 
 function birth_death_ss!(model::StochasticDilutionModel)
     # Before we do anything check that the rn is a birth death process.
-    rn = model.experiment.effective_dilution_rn
+    rn = model.experiment.effective_dilution
     truncation = prod(model.experiment.truncation)
     model_parameters = model.experiment.model_parameters
     state = model.experiment.init
