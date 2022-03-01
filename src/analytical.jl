@@ -6,7 +6,7 @@ struct AnalyticalSolverParameters
     atol::Float64
     rootfinder::Roots.AbstractSecant
 
-    function AnalyticalSolverParameters(truncation, maxiters;solver=Vern7(), rootfinder=Order1(), rtol=1e-6, atol=1e-6)
+    function AnalyticalSolverParameters(truncation, maxiters;solver=Vern7(), rootfinder=Order1(), rtol=1e-8, atol=1e-8)
         new(truncation, maxiters, solver, rtol, atol, rootfinder)
     end
 end
@@ -17,8 +17,8 @@ mutable struct ConvergenceMonitor
     birth_dists::Array{Vector{Float64}}
     growth_factor::Array{Float64}
 
-    function ConvergenceMonitor()
-        new([], [])
+    function ConvergenceMonitor(birth_dist)
+        new([birth_dist,], [])
     end
 end
 
@@ -187,8 +187,8 @@ function update_birth_dist!(results::AnalyticalResults)
 end
 
 function log_convergece!(convergence::ConvergenceMonitor, results::AnalyticalResults)
-    push!(convergence.birth_dists, results.birth_dist)
-    push!(convergence.growth_factor, results.growth_factor)
+    push!(convergence.birth_dists, results.results[:birth_dist])
+    push!(convergence.growth_factor, results.results[:growth_factor])
 end
 
 function random_initial_values(approximation::AbstractAnalyticalApprox)
@@ -211,8 +211,8 @@ function solvecme(
     results.experiment = experiment
     results.approximation = approximation
 
-    convergence = ConvergenceMonitor()
     results.results[:birth_dist] = random_initial_values(approximation)
+    convergence = ConvergenceMonitor(results.results[:birth_dist])
     i::Int64 = 0
 
     progress = Progress(solver.maxiters;)
@@ -224,10 +224,14 @@ function solvecme(
 
         update_growth_factor!(results)
         update_birth_dist!(results)
-        #log_convergece!(convergence, results)
+        log_convergece!(convergence, results)
 
         i += 1
-        ProgressMeter.next!(progress, showvalues = [("Current iteration", i), ("Growth factor λₙ", results.results[:growth_factor])])
+        ProgressMeter.next!(progress, 
+            showvalues = [
+                ("Current iteration", i), 
+                ("Growth factor λₙ", results.results[:growth_factor]),
+                ("Running distance", kl_divergence(convergence.birth_dists[end-1], convergence.birth_dists[end] .+ 1e-4))])
     end
 
     cme = cmemodel(results.results[:birth_dist], experiment.model_parameters, model, approximation)

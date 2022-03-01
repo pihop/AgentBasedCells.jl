@@ -12,6 +12,7 @@ using StochasticDiffEq
 using DiffEqCallbacks
 using ModelingToolkit
 using Catalyst
+using Distances
 
 using Cubature
 
