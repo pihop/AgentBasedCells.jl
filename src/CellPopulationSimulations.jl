@@ -21,7 +21,7 @@ using IntervalRootFinding
 using Roots
 
 abstract type NonHomogeneousSampling end
-abstract type AbstractSimulationModel end
+abstract type AbstractSimulationProblem end
 abstract type AbstractPartitionKernel end
 abstract type AbstractExperimentSetup end
 abstract type AbstractPopulationModel end
@@ -31,6 +31,7 @@ include("partition_kernels.jl")
 export BinomialKernel 
 
 include("model.jl")
+export CellPopulationModel 
 
 using Distributions
 include("thinning.jl")
@@ -38,9 +39,13 @@ include("thinning.jl")
 using FiniteStateProjection
 using SparseArrays
 include("analytical_approximations.jl")
+export FiniteStateApprox 
 
 include("cell_simulation.jl")
+export CellSimulationProblem, SimulationSolver
+export simulate
 include("analytical.jl")
+export AnalyticalProblem, AnalyticalSolver, solvecme
 
 # Utils for the symbolically defined aspects of the model. 
 using Symbolics: value
@@ -57,7 +62,7 @@ export AnalyticalModel, AnalyticalResults, AnalyticalSolverParameters
 export marginal_size_distribution!, mean_marginal_size
 export growth_factor, division_dist, division_dist_hist, division_time_dist, division_time_dist_hist
 #export ThinningSampler, sample_first_arrival!
-export CellState, CellSimulationResults, CellSimulationParameters, CellSimulationModel
+export CellState, CellSimulationResults, CellSimulationParameters, CellSimulationProblem
 export cellsize, final_cell_sizes
 export simulate_population, simulate_population_slow
 #export solvecme
