@@ -1,13 +1,20 @@
-struct AnalyticalSolverParameters
-    truncation::Vector{Int64}
+struct AnalyticalProblem
+    model::AbstractPopulationModel
+    init::Vector{Float64}
+    ps::Vector{Float64}
+    tspan::Tuple{Float64, Float64}
+    approx::AbstractAnalyticalApprox
+end
+
+struct AnalyticalSolver
     maxiters::Int64
     solver::Any
     rtol::Float64
     atol::Float64
     rootfinder::Roots.AbstractSecant
 
-    function AnalyticalSolverParameters(truncation, maxiters;solver=Vern7(), rootfinder=Order1(), rtol=1e-8, atol=1e-8)
-        new(truncation, maxiters, solver, rtol, atol, rootfinder)
+    function AnalyticalSolver(maxiters; solver=Vern7(), rootfinder=Order1(), rtol=1e-8, atol=1e-8)
+        new(maxiters, solver, rtol, atol, rootfinder)
     end
 end
 
@@ -25,10 +32,8 @@ end
 mutable struct AnalyticalResults
     cmesol
     results::Dict 
-    experiment::AbstractExperimentSetup
-    approximation::AbstractAnalyticalApprox
-    model::AbstractPopulationModel
-    solver::AnalyticalSolverParameters
+    problem::AnalyticalProblem
+    solver::AnalyticalSolver
     convergence_monitor::ConvergenceMonitor
 
     function AnalyticalResults()
@@ -46,13 +51,13 @@ function marginal_size_distribution!(results::AnalyticalResults; rtol=1e-6, atol
     println("Calculating marginal size ...")
     λ = results.results[:growth_factor]
     Π(τ) = λ *
-        hquadrature(s -> division_time_dist(results)(s), τ, results.approximation.tspan[end]; abstol=atol)[1]
+        hquadrature(s -> division_time_dist(results)(s), τ, results.problem.tspan[end]; abstol=atol)[1]
     
     telaps = @elapsed marginalΠ = hquadrature(
         length(results.results[:birth_dist]), 
         (s,v) -> v[:] = results.cmesol(s) * Π(s), 
-        results.approximation.tspan[1], 
-        results.approximation.tspan[end]; abstol=atol)[1]
+        results.problem.tspan[1], 
+        results.problem.tspan[end]; abstol=atol)[1]
 
     results.results[:marginal_size] = marginalΠ ./ sum(marginalΠ)
     println("Integration complete, took $telaps seconds.")
@@ -62,47 +67,25 @@ function mean_marginal_size(results::AnalyticalResults;)
     return sum(results.results[:marginal_size] .* collect(0:length(results.results[:marginal_size])-1)) 
 end
 
-function first_passage_time(
-        x::Union{Vector{Float64}, Vector{Int64}}, 
-        τ::Real, 
-        p::Vector{Float64}, 
-        Π; 
-        results)
-
-    # TODO: in general need to pass in also the reaction network to see which
-    # indices correspond to which counts. 
-
-    states = CartesianIndices(zeros(results.solver.truncation...))
-    states = map(x -> x.I .- tuple(I), states)
-
-    # First passage time for division.
-    return results.model.division_rate.(states, fill(p, size(states)), τ) .* Π(τ) 
-end
-
 function division_time_dist(results::AnalyticalResults)
-    experiment = results.experiment
     return τ -> sum(
         first_passage_time(
             results.results[:birth_dist], 
             τ, 
-            experiment.model_parameters, 
+            results.problem.ps, 
             results.cmesol; 
-            results=results))
+            model=results.problem.model,
+            approx=results.problem.approx))
 end
 
 function division_dist(results::AnalyticalResults) 
-    experiment = results.experiment
-    approximation = results.approximation
-
-    model = results.model
-    experiment = results.model.experiment
     return hquadrature(
-        length(results.birth_dist),
+        length(results.results[:birth_dist]),
         (s,v) -> v[:] = first_passage_time(
-            results.birth_dist, 
+        results.results[:birth_dist], 
             s, 
-            experiment.model_parameters, 
-            results.cme_solution; 
+            model.problem.model_parameters, 
+            results.cmesol; 
             results=results), 
         approximation.tspan[1], 
         approximation.tspan[2], 
@@ -111,28 +94,25 @@ function division_dist(results::AnalyticalResults)
 end
 
 function division_dist_hist(results::AnalyticalResults) 
-    experiment = results.experiment
-    approximation = results.approximation
-
     return hquadrature(
-        length(results.birth_dist),
+        length(results.results[:birth_dist]),
         (s,v) -> v[:] = 2 * 
             exp(-results.results[:growth_factor]* s) * 
             first_passage_time(
                 results.results[:birth_dist], 
                 s, 
-                experiment.model_parameters, 
-                results.cme_solution; 
-                results=results), 
-        approximation.tspan[1], 
-        approximation.tspan[2], 
+                results.problem.ps, 
+                results.cmesol; 
+                model=results.problem.model,
+                approx=results.problem.approx
+               ), 
+        results.problem.tspan[1], 
+        results.problem.tspan[end], 
         reltol=results.solver.rtol, 
         abstol=results.solver.atol)[1]
 end
 
-function update_growth_factor!(results::AnalyticalResults)
-    experiment = results.experiment
-    approximation = results.approximation
+function update_growth_factor!(problem::AnalyticalProblem, results::AnalyticalResults)
     solver = results.solver
 
     # Find marginal first passage time ν(t). This is normalised by
@@ -141,45 +121,33 @@ function update_growth_factor!(results::AnalyticalResults)
         first_passage_time(
             results.results[:birth_dist], 
             τ, 
-            experiment.model_parameters, 
+            problem.ps, 
             results.cmesol; 
-            results=results))
+            model=problem.model,
+            approx=problem.approx))
 
     # Root finding for the population growth rate λ.
     f(λ) = 1 - 2 *  hquadrature(
         s -> marginalfpt(s) * exp(-λ*s), 
-        approximation.tspan[1], 
-        approximation.tspan[2], 
+        problem.tspan[1], 
+        problem.tspan[end], 
         reltol=solver.rtol, 
         abstol=results.solver.atol)[1]
 
     results.results[:growth_factor] = find_zero(f, 0, solver.rootfinder)
 end
 
-function update_birth_dist!(results::AnalyticalResults)
-    experiment = results.experiment
-    approximation = results.approximation
+function update_birth_dist!(problem::AnalyticalProblem, results::AnalyticalResults)
     solver = results.solver
-    model = results.model
 
     # Calculated new boundary condition given λ and CMEsol (Π(x|τ)).
-    boundary_cond_integrand(τ) = sum(
-        partition.(
-            model.partition_kernel,   
-            collect.(axes(results.results[:birth_dist]))[1] .- 1, solver.truncation) 
-        .* first_passage_time(
-            results.results[:birth_dist], 
-            τ, 
-            experiment.model_parameters, 
-            results.cmesol; 
-            results=results) 
-        .* 2 .*exp(-results.results[:growth_factor]*τ))
+    boundary_cond_integrand = boundary_condition(problem, results, problem.approx)
 
     results.results[:birth_dist] = hquadrature(
         length(results.results[:birth_dist]),
         (s,v) -> v[:] = boundary_cond_integrand(s), 
-        approximation.tspan[1], 
-        approximation.tspan[2], 
+        problem.tspan[1], 
+        problem.tspan[end], 
         reltol=results.solver.rtol,
         abstol=results.solver.atol)[1]
 
@@ -198,20 +166,14 @@ function random_initial_values(approximation::AbstractAnalyticalApprox)
     return  init ./ sum(init)
 end
 
-function solvecme(
-        model::AbstractPopulationModel,
-        experiment::AbstractExperimentSetup,
-        approximation::AbstractAnalyticalApprox, 
-        solver::AnalyticalSolverParameters)
+function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
 
     # Every interation refines birth_dist (Π(x|0)) and growth factor λ.
     results = AnalyticalResults()
-    results.model = model
+    results.problem = problem
     results.solver = solver
-    results.experiment = experiment
-    results.approximation = approximation
 
-    results.results[:birth_dist] = random_initial_values(approximation)
+    results.results[:birth_dist] = random_initial_values(problem.approx)
     convergence = ConvergenceMonitor(results.results[:birth_dist])
     i::Int64 = 0
 
@@ -219,11 +181,11 @@ function solvecme(
      
     while i < solver.maxiters
         # Solve the CME Π(x|τ).
-        cme = cmemodel(results.results[:birth_dist], experiment.model_parameters, model, approximation)
+        cme = cmemodel(results.results[:birth_dist], problem.ps, problem.tspan, problem.model, problem.approx)
         results.cmesol = solve(cme, solver.solver; cb=PositiveDomain(), atol=solver.atol) 
 
-        update_growth_factor!(results)
-        update_birth_dist!(results)
+        update_growth_factor!(problem, results)
+        update_birth_dist!(problem, results)
         log_convergece!(convergence, results)
 
         i += 1
@@ -234,7 +196,7 @@ function solvecme(
                 ("Running distance", kl_divergence(convergence.birth_dists[end-1], convergence.birth_dists[end] .+ 1e-4))])
     end
 
-    cme = cmemodel(results.results[:birth_dist], experiment.model_parameters, model, approximation)
+    cme = cmemodel(results.results[:birth_dist], problem.ps, problem.tspan, problem.model, problem.approx)
     cme_solution = solve(cme, solver.solver; cb=PositiveDomain(), atol=solver.atol) 
     results.cmesol = cme_solution
     results.convergence_monitor = convergence
