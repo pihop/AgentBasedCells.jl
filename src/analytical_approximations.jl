@@ -22,6 +22,25 @@ function cmemodel(
     return ODEProblem(fu!, xinit, tspan, parameters)
 end
 
+function error(results, approx::FiniteStateApprox)
+    problem = results.problem
+    model = results.problem.model
+
+    fsp_problem = FSPSystem(model.molecular_model)
+    A = convert(SparseMatrixCSC, fsp_problem, tuple(approx.truncation...), problem.ps, 0)
+    # Assuming no mass enters is added to the system the boundary states
+    # correspond to where the columns of A are negative.
+    bndA = vec(sum(A, dims=1))
+
+    function ferr!(du, u, p, t)
+        du[1] = bndA' * results.cmesol(t)
+    end
+
+    ferr_prob = ODEProblem(ferr!, [0.0,], problem.tspan,  []) 
+    ferr_sol = solve(ferr_prob, results.solver.solver)
+    return ferr_sol.u[end][1]
+end
+
 function first_passage_time(
         x::Union{Vector{Float64}, Vector{Int64}}, 
         τ::Real, 
