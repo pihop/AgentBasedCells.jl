@@ -13,7 +13,7 @@ struct AnalyticalSolver
     atol::Float64
     rootfinder::Roots.AbstractSecant
 
-    function AnalyticalSolver(maxiters; solver=Vern7(), rootfinder=Order1(), rtol=1e-8, atol=1e-8)
+    function AnalyticalSolver(maxiters; solver=Vern7(), rootfinder=Order0(), rtol=1e-8, atol=1e-8)
         new(maxiters, solver, rtol, atol, rootfinder)
     end
 end
@@ -35,6 +35,7 @@ mutable struct AnalyticalResults
     problem::AnalyticalProblem
     solver::AnalyticalSolver
     convergence_monitor::ConvergenceMonitor
+    error::Float64
 
     function AnalyticalResults()
         results = new()
@@ -175,13 +176,14 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
 
     results.results[:birth_dist] = random_initial_values(problem.approx)
     convergence = ConvergenceMonitor(results.results[:birth_dist])
-    i::Int64 = 0
+    cme = cmemodel(results.results[:birth_dist], problem.ps, problem.tspan, problem.model, problem.approx)
 
+    i::Int64 = 0
     progress = Progress(solver.maxiters;)
      
     while i < solver.maxiters
         # Solve the CME Π(x|τ).
-        cme = cmemodel(results.results[:birth_dist], problem.ps, problem.tspan, problem.model, problem.approx)
+        cme = remake(cme; u0=results.results[:birth_dist])
         results.cmesol = solve(cme, solver.solver; cb=PositiveDomain(), atol=solver.atol) 
 
         update_growth_factor!(problem, results)
@@ -196,10 +198,10 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
                 ("Running distance", kl_divergence(convergence.birth_dists[end-1], convergence.birth_dists[end] .+ 1e-4))])
     end
 
-    cme = cmemodel(results.results[:birth_dist], problem.ps, problem.tspan, problem.model, problem.approx)
-    cme_solution = solve(cme, solver.solver; cb=PositiveDomain(), atol=solver.atol) 
-    results.cmesol = cme_solution
+    cme = remake(cme; u0=results.results[:birth_dist])
+    results.cmesol = solve(cme, solver.solver; cb=PositiveDomain(), atol=solver.atol) 
     results.convergence_monitor = convergence
+    results.error = error(results, problem.approx)
 
     return results 
 end
