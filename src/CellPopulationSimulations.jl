@@ -53,7 +53,9 @@ using SymbolicUtils
 include("symbolics.jl")
 
 include("effective_dilution.jl")
+export EffectiveDilutionModel
 include("stochastic_dilution.jl")
+export StochasticDilutionModel, birth_death_steady_state!, mean_steady_state
 
 include("experiment.jl")
 export AbstractExperimentSetup, run_analytical, run_simulation
@@ -68,7 +70,6 @@ export simulate_population, simulate_population_slow
 #export solvecme
 #export gen_division_rate_function
 
-export EffectiveDilutionModel
 export root_finding!
 export Interval
 
@@ -77,7 +78,6 @@ export PopulationExperimentSetup
 export ParameterStudySetup
 export simulation_prange, effective_prange
 
-export StochasticDilutionModel, birth_death_ss!, mean_steady_state
 
 #export BurstyReactionModel
 

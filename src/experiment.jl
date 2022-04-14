@@ -18,6 +18,10 @@ function run_analytical(model, exp::T; kwargs...) where T <: AbstractExperimentS
     return solvecme(problem, solver)
 end
 
+_run_analytical(model, exp) = run_analytical(model, exp)
+Broadcast.broadcasted(::typeof(run_analytical), model, exp) = 
+    broadcast(_run_analytical, Ref(model), exp)
+
 function run_simulation(model, exp::T) where T <: AbstractExperimentSetup
     init_pop = [CellState([0, ], 0.0, 0.0, [0.0, ], 0.0, CellPopulationSimulations.ThinningSampler()), ]
     problem = CellSimulationProblem(model, init_pop, exp.ps, exp.simulation_tspan)  
@@ -54,12 +58,4 @@ end
 #           parametrisations[1],
 #           note)
 #    end
-#end
-#
-#function simulation_prange(setup::ParameterStudySetup)
-#    return range(setup.parameter_span[1], step = setup.simulation_pstep, stop = setup.parameter_span[2])
-#end
-#
-#function effective_prange(setup::ParameterStudySetup)
-#    return range(setup.parameter_span[1], step = setup.effective_pstep, stop = setup.parameter_span[2])
 #end

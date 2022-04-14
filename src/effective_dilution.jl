@@ -1,24 +1,24 @@
 mutable struct EffectiveDilutionModel
+    rn::ReactionSystem
     roots_function::Function
-    search_interval::Interval{Float64}
-    parameters::Vector{Float64}
-    parameter_span::StepRangeLen
-    bifurcation_index::Int64
-    roots
-    experiment::AbstractExperimentSetup
+    bif_idx::Int64
+    roots::Vector{Any}
 
-    function EffectiveDilutionModel(roots_function, search_interval, bifurcation_index, parameter_span, experiment)
-        new(roots_function, search_interval, experiment.model_parameters, parameter_span, bifurcation_index, [], experiment)
+    function EffectiveDilutionModel(rn, bif_idx)
+        # 1D model
+        odefun = ODEFunction(convert(ODESystem,rn),jac=true)
+        rootsf(ps) = x -> odefun.f([x,], ps, 0.0)[1]
+        new(rn, rootsf, bif_idx, [])
     end
 end
 
-function root_finding!(model::EffectiveDilutionModel)
-    params = [] 
-    for p in model.parameter_span
-        _p = copy(model.experiment.model_parameters)
-        _p[model.bifurcation_index] = p 
-        push!(params, _p)
+function root_finding!(model::EffectiveDilutionModel, ps, bif_range; search_interval) 
+    for p in bif_range
+        _ps = ps
+        _ps[model.bif_idx] = p 
+        rts = roots(model.roots_function(_ps), search_interval)
+        midpoints = mid.(getfield.(rts, :interval))
+        pts = [(p, m) for m in midpoints]
+        push!(model.roots, pts...)
     end
-   
-    model.roots = [roots(model.roots_function(p...), model.search_interval) for p in params]
 end
