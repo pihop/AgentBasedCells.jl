@@ -1,18 +1,17 @@
 mutable struct StochasticDilutionModel
     rn::ReactionSystem
     init
-    ps
-    truncation
+    ps::Vector{Float64}
     steady_state::Vector{Float64}
 
     function StochasticDilutionModel(rn, init, ps)
-        new(rn, init, ps, 0, [])
+        new(rn, init, ps, [])
     end
 end
 
-_StochasticDilutionModel(rn,  init, ps) = StochasticDilutionModel(rn, init, ps)
-Broadcast.broadcasted(::typeof(StochasticDilutionModel), rn, init, ps) = 
-    broadcast(_StochasticDilutionModel, Ref(rn), Ref(init), ps)
+#_StochasticDilutionModel(rn,  init, ps) = StochasticDilutionModel(rn, init, ps)
+#Broadcast.broadcasted(::typeof(StochasticDilutionModel), rn, init, ps) = 
+#    broadcast(_StochasticDilutionModel, Ref(rn), Ref(init), ps)
 
 struct BirthDeathException <: Exception end
 Base.showerror(io::IO, e::BirthDeathException) = print("Not a birth death process.")
@@ -34,10 +33,10 @@ function birth_death_steady_state!(model::StochasticDilutionModel, truncation)
     stoich = Catalyst.netstoichmat(model.rn)
 
     ratef = gen_division_rate_function.(rates, model.rn)
-    eval_rates = [[f(state, model.ps, 0.0) for f in ratef] for state in 1:truncation] 
+    eval_rates = [[f(state, model.ps, 0.0) for f in ratef] for state in 1:truncation[1]] 
     # currently evaluated for t = 0.0. Ok if rates are not time dependent.
     sumλ = sum.(map(x -> x[vec(stoich .== 1)], eval_rates))
-    sumμ = sum.(map(x -> x[vec(stoich .== -1)], eval_rates)) .* (collect(1:truncation) .- 1)
+    sumμ = sum.(map(x -> x[vec(stoich .== -1)], eval_rates)) .* (collect(1:truncation[1]) .- 1)
 
     cprods = cumprod([λ/sumμ[i+1] for (i, λ) in enumerate(sumλ[1:end-1])])
     

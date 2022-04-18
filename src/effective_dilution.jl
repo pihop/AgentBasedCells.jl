@@ -12,9 +12,9 @@ mutable struct EffectiveDilutionModel
     end
 end
 
-function root_finding!(model::EffectiveDilutionModel, ps, bif_range; search_interval) 
+function root_finding(model::EffectiveDilutionModel, params, bif_range; search_interval) 
     for p in bif_range
-        _ps = ps
+        _ps = copy(params)
         _ps[model.bif_idx] = p 
         rts = roots(model.roots_function(_ps), search_interval)
         midpoints = mid.(getfield.(rts, :interval))
