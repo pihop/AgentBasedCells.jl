@@ -10,17 +10,21 @@
     jitt::Float64 = 1e-4
 end
 
-function run_analytical(model, exp::T; kwargs...) where T <: AbstractExperimentSetup
+function run_analytical_single(model, exp::T; kwargs...) where T <: AbstractExperimentSetup
     approx = FiniteStateApprox(exp.truncation)
     problem = AnalyticalProblem(model, exp.init, exp.ps, exp.analytical_tspan, approx) 
-    solver = AnalyticalSolver(exp.iters)
+    solver = AnalyticalSolver(exp.iters; kwargs...)
 
     return solvecme(problem, solver)
 end
 
-_run_analytical(model, exp) = run_analytical(model, exp)
-Broadcast.broadcasted(::typeof(run_analytical), model, exp) = 
-    broadcast(_run_analytical, Ref(model), exp)
+function run_analytical(model::CellPopulationModel, exp::Vector{T}; kwargs...) where T <: AbstractExperimentSetup
+    return [run_analytical_single(model, e; kwargs...) for e in exp]
+end
+
+_run_analytical(model, exp;) = run_analytical(model, exp;)
+Broadcast.broadcasted(::typeof(run_analytical), model, exp;) = 
+    broadcast(_run_analytical, Ref(model), exp;)
 
 function run_simulation(model, exp::T) where T <: AbstractExperimentSetup
     init_pop = [CellState([0, ], 0.0, 0.0, [0.0, ], 0.0, CellPopulationSimulations.ThinningSampler()), ]
