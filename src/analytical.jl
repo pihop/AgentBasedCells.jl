@@ -44,8 +44,8 @@ mutable struct AnalyticalResults
     end
 end
 
-function Base.show(::IO, ::AnalyticalResults)
-    println("Analytical computation results for cell population model.")
+function Base.show(io::IO, ::AnalyticalResults)
+    print(io, "Analytical computation results for cell population model.")
 end
 
 function marginal_size_distribution!(results::AnalyticalResults; rtol=1e-6, atol=1e-6)
@@ -184,7 +184,7 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
     while i < solver.maxiters
         # Solve the CME Π(x|τ).
         cme = remake(cme; u0=results.results[:birth_dist])
-        results.cmesol = solve(cme, solver.solver; cb=PositiveDomain(), atol=solver.atol) 
+        results.cmesol = solve(cme, solver.solver; callback=PositiveDomain(), abstol=solver.atol) 
 
         update_growth_factor!(problem, results)
         update_birth_dist!(problem, results)
@@ -199,7 +199,7 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
     end
 
     cme = remake(cme; u0=results.results[:birth_dist])
-    results.cmesol = solve(cme, solver.solver; cb=PositiveDomain(), atol=solver.atol) 
+    results.cmesol = solve(cme, solver.solver; callback=PositiveDomain(), abstol=solver.atol) 
     results.convergence_monitor = convergence
     results.error = error(results, problem.approx)
 
