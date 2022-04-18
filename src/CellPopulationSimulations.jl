@@ -54,6 +54,7 @@ include("symbolics.jl")
 
 include("effective_dilution.jl")
 export EffectiveDilutionModel
+export root_finding
 include("stochastic_dilution.jl")
 export StochasticDilutionModel, birth_death_steady_state!, mean_steady_state
 
@@ -70,7 +71,6 @@ export simulate_population, simulate_population_slow
 #export solvecme
 #export gen_division_rate_function
 
-export root_finding!
 export Interval
 
 export PopulationExperimentSetup
