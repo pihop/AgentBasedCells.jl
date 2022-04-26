@@ -59,7 +59,7 @@ include("stochastic_dilution.jl")
 export StochasticDilutionModel, birth_death_steady_state!, mean_steady_state
 
 include("experiment.jl")
-export AbstractExperimentSetup, run_analytical, run_simulation
+export AbstractExperimentSetup, run_analytical, run_analytical_single, run_simulation
 
 export AnalyticalModel, AnalyticalResults, AnalyticalSolverParameters
 export marginal_size_distribution!, mean_marginal_size
@@ -77,7 +77,6 @@ export PopulationExperimentSetup
 
 export ParameterStudySetup
 export simulation_prange, effective_prange
-
 
 #export BurstyReactionModel
 
