@@ -85,11 +85,12 @@ function division_dist(results::AnalyticalResults)
         (s,v) -> v[:] = first_passage_time(
         results.results[:birth_dist], 
             s, 
-            model.problem.model_parameters, 
+            results.problem.ps, 
             results.cmesol; 
-            results=results), 
-        approximation.tspan[1], 
-        approximation.tspan[2], 
+            model=results.problem.model,
+            approx=results.problem.approx), 
+        results.problem.tspan[1], 
+        results.problem.tspan[2], 
         reltol=results.solver.rtol, 
         abstol=results.solver.atol)[1]
 end
