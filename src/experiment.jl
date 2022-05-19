@@ -27,11 +27,11 @@ Broadcast.broadcasted(::typeof(run_analytical), model, exp;) =
     broadcast(_run_analytical, Ref(model), exp;)
 
 function run_simulation(model, exp::T) where T <: AbstractExperimentSetup
-    init_pop = [CellState([0, ], 0.0, 0.0, [0.0, ], 0.0, CellPopulationSimulations.ThinningSampler()), ]
+    init_pop = [CellState(exp.init, 0.0, 0.0, exp.init, 0.0, CellPopulationSimulations.ThinningSampler()), ]
     problem = CellSimulationProblem(model, init_pop, exp.ps, exp.simulation_tspan)  
     solver = SimulationSolver(exp.Δt, exp.jitt, exp.max_pop) 
 
-    return simulate(probem, solver)
+    return simulate(problem, solver)
 end
 
 #@kwdef struct ParameterStudySetup <: AbstractExperimentSetup 
