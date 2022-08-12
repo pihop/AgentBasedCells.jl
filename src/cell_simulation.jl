@@ -150,10 +150,10 @@ function log_results!(results, mother, daughters)
     push!(results.results[:molecules_at_division_all], cell_size.(daughters)...)
 end
 
-function states_at_last_division!(problem, results, division_time, cell_population)
+function states_at_last_division!(problem, results, division_time, cell_population; jitt)
     for cell in cell_population
         sim = simulate_molecular(problem.molecular_model, cell, problem.ps,
-            (0.0, division_time - cell.birth_time); from_birth=true)
+            (0.0, division_time - cell.birth_time + jitt); from_birth=true)
          
         push!(results.results[:final_population], sim.u[end])
     end
@@ -185,6 +185,6 @@ function simulate(problem::CellSimulationProblem, solver::SimulationSolver)
         ProgressMeter.next!(progress, showvalues = [("Time", t), ("Population size", length(cell_population))])
     end
 
-    states_at_last_division!(problem, simulation_results, t, cell_population)
+    states_at_last_division!(problem, simulation_results, t, cell_population; solver.jitt)
     return simulation_results 
 end
