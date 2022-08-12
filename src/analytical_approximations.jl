@@ -30,15 +30,49 @@ function error(results, approx::FiniteStateApprox)
     A = convert(SparseMatrixCSC, fsp_problem, tuple(approx.truncation...), problem.ps, 0)
     # Assuming no mass enters is added to the system the boundary states
     # correspond to where the columns of A are negative.
-    bndA = vec(sum(A, dims=1))
+    bndA = abs.(vec(sum(A, dims=1)))
 
     function ferr!(du, u, p, t)
-        du[1] = bndA' * results.cmesol(t)
+        du[1] = bndA' * results.cmesol(t) 
     end
 
     ferr_prob = ODEProblem(ferr!, [0.0,], problem.tspan,  []) 
     ferr_sol = solve(ferr_prob, results.solver.solver)
+
     return ferr_sol.u[end][1]
+end
+
+function sanity_check(results, approx::FiniteStateApprox)
+    problem = results.problem
+    model = results.problem.model
+
+    fsp_problem = FSPSystem(model.molecular_model)
+    A = convert(SparseMatrixCSC, fsp_problem, tuple(approx.truncation...), problem.ps, 0)
+
+    states = CartesianIndices(zeros(approx.truncation...))
+    states = map(x -> x.I .- tuple(I), states)
+
+    # Assuming no mass enters is added to the system the boundary states
+    # correspond to where the columns of A are negative.
+    bndA = abs.(vec(sum(A, dims=1)))
+
+    function f!(du, u, p, t)
+        du = A * u .- results.problem.model.division_rate.(states, fill(p, size(states)), t) .* u .- results.results[:growth_factor] .* u
+    end
+
+    u0 = results.results[:birth_dist] * 2 * results.results[:growth_factor]
+
+    f_prob = ODEProblem(f!, u0, problem.tspan,  problem.ps) 
+    f_sol = solve(f_prob, results.solver.solver)
+
+    function ferr!(du, u, p, t)
+        du[1] = bndA' * f_sol(t)
+    end
+
+    ferr_prob = ODEProblem(ferr!, [0.0,], problem.tspan, []) 
+    ferr_sol = solve(ferr_prob, results.solver.solver)
+
+    return ferr_sol.u[end] / results.results[:growth_factor]
 end
 
 function first_passage_time(

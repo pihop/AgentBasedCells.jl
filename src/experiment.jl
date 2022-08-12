@@ -18,6 +18,14 @@ function run_analytical_single(model, exp::T; kwargs...) where T <: AbstractExpe
     return solvecme(problem, solver)
 end
 
+function run_analyticalerr_single(model, exp::T; kwargs...) where T <: AbstractExperimentSetup
+    approx = FiniteStateApprox(exp.truncation)
+    problem = AnalyticalProblem(model, exp.init, exp.ps, exp.analytical_tspan, approx) 
+    solver = AnalyticalSolver(exp.iters; kwargs...)
+
+    return solvecmeerror(problem, solver)
+end
+
 function run_analytical(model::CellPopulationModel, exp::Vector{T}; kwargs...) where T <: AbstractExperimentSetup
     return [run_analytical_single(model, e; kwargs...) for e in exp]
 end

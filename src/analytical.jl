@@ -137,6 +137,36 @@ function update_growth_factor!(problem::AnalyticalProblem, results::AnalyticalRe
         abstol=results.solver.atol)[1]
 
     results.results[:growth_factor] = find_zero(f, 0, solver.rootfinder)
+    push!(results.results[:errors], results.results[:growth_factor])
+end
+
+function update_growth_factor_error!(problem::AnalyticalProblem, results::AnalyticalResults)
+    solver = results.solver
+
+    # Find marginal first passage time ν(t). This is normalised by
+    # definition -- in the code up to numerical accuracy. 
+    marginalfpt(τ) = sum(
+        first_passage_time(
+            results.results[:birth_dist], 
+            τ, 
+            problem.ps, 
+            results.cmesol; 
+            model=problem.model,
+            approx=problem.approx))
+
+
+    correction = error(results, problem.approx)
+
+    f(λ) = 1 - 2*correction - 2*hquadrature(
+        s -> marginalfpt(s) * exp(-λ*s), 
+        problem.tspan[1], 
+        problem.tspan[end], 
+        reltol=solver.rtol, 
+        abstol=results.solver.atol)[1] 
+ 
+    results.results[:growth_factor] = find_zero(f, 1, solver.rootfinder)
+    push!(results.results[:errors], [correction[1]/results.results[:growth_factor], results.results[:growth_factor]])
+#    push!(results.results[:sanity], sanity_check(results, problem.approx))
 end
 
 function update_birth_dist!(problem::AnalyticalProblem, results::AnalyticalResults)
@@ -176,6 +206,8 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
     results.solver = solver
 
     results.results[:birth_dist] = random_initial_values(problem.approx)
+    results.results[:birth_dist_iters] = [results.results[:birth_dist], ]
+    results.results[:errors] = [] 
     convergence = ConvergenceMonitor(results.results[:birth_dist])
     cme = cmemodel(results.results[:birth_dist], problem.ps, problem.tspan, problem.model, problem.approx)
 
@@ -189,6 +221,7 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
 
         update_growth_factor!(problem, results)
         update_birth_dist!(problem, results)
+        push!(results.results[:birth_dist_iters], results.results[:birth_dist])
         log_convergece!(convergence, results)
 
         i += 1
@@ -202,7 +235,46 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
     cme = remake(cme; u0=results.results[:birth_dist])
     results.cmesol = solve(cme, solver.solver; callback=PositiveDomain(), abstol=solver.atol) 
     results.convergence_monitor = convergence
-    results.error = error(results, problem.approx)
+#    results.error = error(results, problem.approx)
+    return results 
+end
 
+function solvecmeerror(problem::AnalyticalProblem, solver::AnalyticalSolver)
+    # Every interation refines birth_dist (Π(x|0)) and growth factor λ.
+    results = AnalyticalResults()
+    results.problem = problem
+    results.solver = solver
+
+    results.results[:birth_dist] = random_initial_values(problem.approx)
+    results.results[:errors] = [] 
+    results.results[:sanity] = [] 
+    convergence = ConvergenceMonitor(results.results[:birth_dist])
+    cme = cmemodel(results.results[:birth_dist], problem.ps, problem.tspan, problem.model, problem.approx)
+
+    i::Int64 = 0
+    progress = Progress(solver.maxiters;)
+
+    while i < solver.maxiters
+        cme = remake(cme; u0=results.results[:birth_dist])
+        results.cmesol = solve(cme, solver.solver; callback=PositiveDomain(), abstol=solver.atol) 
+        update_growth_factor_error!(problem, results)
+
+        update_birth_dist!(problem, results)
+        log_convergece!(convergence, results)
+
+        i += 1
+        ProgressMeter.next!(progress, 
+            showvalues = [
+                ("Current iteration", i), 
+                ("Growth factor λₙ", results.results[:growth_factor]),
+                ("Running distance", kl_divergence(convergence.birth_dists[end-1], convergence.birth_dists[end] .+ 1e-4)),
+                ("Error", results.results[:errors][end])])
+#                ("Sanity", results.results[:sanity][end])])
+
+    end
+
+    cme = remake(cme; u0=results.results[:birth_dist])
+    results.cmesol = solve(cme, solver.solver; callback=PositiveDomain(), abstol=solver.atol) 
+    results.convergence_monitor = convergence
     return results 
 end
