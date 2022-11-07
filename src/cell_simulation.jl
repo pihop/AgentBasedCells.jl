@@ -36,7 +36,7 @@ end
 
 mutable struct CellSimulationProblem <: AbstractSimulationProblem 
     model::CellPopulationModel
-    molecular_model::Union{JumpProblem, ODEProblem, SDEProblem}
+    molecular_model::Union{JumpProcesses.JumpProblem, ODEProblem, SDEProblem}
     init::Vector{CellState}
     ps::Vector{Float64}
     tspan::Tuple{Float64, Float64}
@@ -49,7 +49,7 @@ mutable struct CellSimulationProblem <: AbstractSimulationProblem
             tspan, 
             Catalyst.parameters(model.molecular_model) .=> ps)
 
-        jump = JumpProblem(model.molecular_model, discrete, Direct())
+        jump = JumpProcesses.JumpProblem(model.molecular_model, discrete, Direct())
         new(model, jump, init, ps, tspan)
     end
 end 
@@ -81,6 +81,14 @@ function final_cell_sizes(results::CellSimulationResults)
     return [cell.state for cell in results.final_population]
 end
 
+function molecule_state(cell_state::CellState)
+    return cell_state.state
+end
+
+function birth_molecule_state(cell_state::CellState)
+    return cell_state.birth_state
+end
+
 function cell_size(cell_state::CellState)
     return sum(cell_state.state)
 end
@@ -102,7 +110,7 @@ function cell_birth_time(cell_state::CellState)
 end
 
 function simulate_molecular(
-    molecular_model::JumpProblem,
+    molecular_model::JumpProcesses.JumpProblem,
     cell_state::CellState, 
     model_parameters::Vector{Float64}, 
     tspan::Tuple{Float64, Float64};
@@ -142,12 +150,12 @@ end
 
 function log_results!(results, mother, daughters)
     push!(results.results[:division_times_ancest], mother.division_time - mother.birth_time)
-    push!(results.results[:molecules_at_division], cell_size(mother))
-    push!(results.results[:molecules_at_birth], cell_birth_size(mother))
+    push!(results.results[:molecules_at_division], mother.state)
+    push!(results.results[:molecules_at_birth], mother.birth_state)
     
     push!(results.results[:division_times_all], (cell_division_time.(daughters) .- cell_birth_time.(daughters))...)
-    push!(results.results[:molecules_at_birth_all], cell_birth_size.(daughters)...)
-    push!(results.results[:molecules_at_division_all], cell_size.(daughters)...)
+    push!(results.results[:molecules_at_birth_all], birth_molecule_state.(daughters)...)
+    push!(results.results[:molecules_at_division_all], molecule_state.(daughters)...)
 end
 
 function states_at_last_division!(problem, results, division_time, cell_population; jitt)
