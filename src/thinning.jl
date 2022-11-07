@@ -1,3 +1,7 @@
+struct BadRateBound <: Exception end
+
+Base.showerror(io::IO, e::BadRateBound) = print(io, "Defined rate bound invalid in the time interval.")
+
 mutable struct ThinningSampler <: NonHomogeneousSampling
     λ::Function
     λmax::Float64
@@ -18,10 +22,12 @@ function sample_first_arrival!(sampler::ThinningSampler)
     while true
         propose_next!(sampler)
         U = rand(Uniform())
-        if sampler.proposet > sampler.tspan[end]
+        if (sampler.proposet > sampler.tspan[end]) 
             sampler.proposet = nothing
             return nothing
-        elseif U ≤ sampler.λ(sampler.proposet) / sampler.λmax
+        elseif sampler.λ(sampler.proposet) / sampler.λmax > 1.0
+            throw(BadRateBound) 
+        elseif (U ≤ sampler.λ(sampler.proposet) / sampler.λmax) || sampler.λmax == Inf
             return sampler.proposet
         end
     end
@@ -37,13 +43,9 @@ function sample_next_division(
     # f(t) is the CellTrajectory.
     # How do we find λ such that λ ≥ λ(t, f(t)) for all t in general.
     # f(t) in our case monotonic so just take the end point of tspan.
-    
-    sampler.λmax = problem.model.division_rate(
-        cell_trajectory(tspan[end]), 
-        problem.ps, 
-        tspan[end])
 
-    sampler.λ = t -> problem.model.division_rate(cell_trajectory(t), problem.ps, t)
+    sampler.λmax = get_λmax(problem.model.division_rate, cell_trajectory, tspan, problem.ps)
+    sampler.λ = t -> problem.model.division_rate.ratef(cell_trajectory(t), problem.ps, t)
     sampler.tspan = tspan 
     t = sample_first_arrival!(sampler)
     return t 
