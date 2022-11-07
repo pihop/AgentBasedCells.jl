@@ -1,18 +1,18 @@
 @kwdef struct PopulationExperimentSetup <: AbstractExperimentSetup
-    init::Vector{Float64} 
-    ps::Vector{Float64} 
-    simulation_tspan::Tuple{Float64, Float64} 
-    analytical_tspan::Tuple{Float64, Float64} 
-    iters::Int64
-    Δt::Float64 
-    max_pop::Int64 
-    truncation::Vector{Int64} 
+    init::Vector{Float64} = Float64[]
+    ps::Vector{Float64} = Float64[]
+    simulation_tspan::Tuple{Float64, Float64} = (0.0, 0.0)
+    analytical_tspan::Tuple{Float64, Float64} = (0.0, 0.0) 
+    iters::Int64 = 0
+    Δt::Float64 = 0.0
+    max_pop::Int64 = 0
+    truncation::Vector{Int64} = Int64[]
     jitt::Float64 = 1e-4
 end
 
 function run_analytical_single(model, exp::T; kwargs...) where T <: AbstractExperimentSetup
     approx = FiniteStateApprox(exp.truncation)
-    problem = AnalyticalProblem(model, exp.init, exp.ps, exp.analytical_tspan, approx) 
+    problem = AnalyticalProblem(model, exp.ps, exp.analytical_tspan, approx) 
     solver = AnalyticalSolver(exp.iters; kwargs...)
 
     return solvecme(problem, solver)
@@ -20,13 +20,17 @@ end
 
 function run_analyticalerr_single(model, exp::T; kwargs...) where T <: AbstractExperimentSetup
     approx = FiniteStateApprox(exp.truncation)
-    problem = AnalyticalProblem(model, exp.init, exp.ps, exp.analytical_tspan, approx) 
+    problem = AnalyticalProblem(model, exp.ps, exp.analytical_tspan, approx) 
     solver = AnalyticalSolver(exp.iters; kwargs...)
 
     return solvecmeerror(problem, solver)
 end
 
 function run_analytical(model::CellPopulationModel, exp::Vector{T}; kwargs...) where T <: AbstractExperimentSetup
+    return [run_analytical_single(model, e; kwargs...) for e in exp]
+end
+
+function run_analytical(model::MotherCellModel, exp::Vector{T}; kwargs...) where T <: AbstractExperimentSetup
     return [run_analytical_single(model, e; kwargs...) for e in exp]
 end
 
