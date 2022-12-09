@@ -14,6 +14,7 @@ mutable struct EffectiveDilutionModel
 end
 
 function root_finding(model::EffectiveDilutionModel, params, bif_range; search_interval) 
+    model.roots = []
     for p in bif_range
         _ps = copy(params)
         _ps[model.bif_idx] = p 
