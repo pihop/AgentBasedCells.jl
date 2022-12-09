@@ -45,17 +45,17 @@ export CellPopulationModel, MotherCellModel, DivisionRateMonotonicInc, DivisionR
 using Distributions
 include("thinning.jl")
 
-using FiniteStateProjection
-using SparseArrays
-include("analytical_approximations.jl")
-export FiniteStateApprox 
-
 include("cell_simulation.jl")
 export CellSimulationProblem, SimulationSolver
 export simulate
 include("analytical.jl")
 export AnalyticalProblem, AnalyticalSolver, solvecme
-export ToxicBoundaryUpper, ToxicBoundaryLower, Reinsert
+export ToxicBoundaryRe, ToxicBoundaryDeath, Reinsert
+
+using FiniteStateProjection
+using SparseArrays
+include("analytical_approximations.jl")
+export FiniteStateApprox 
 
 # Utils for the symbolically defined aspects of the model. 
 using Symbolics: value
@@ -73,7 +73,7 @@ export AbstractExperimentSetup, run_analytical, run_analytical_single, run_analy
 
 export AnalyticalModel, AnalyticalResults, AnalyticalSolverParameters
 export marginal_size_distribution!, mean_marginal_size
-export growth_factor, division_dist!, interdivision_time_dist, division_time_cdist!, joint_fpt_cdist!, division_dist_hist!, division_time_dist, division_time_dist_hist
+export growth_factor, division_dist!, interdivision_time_dist, division_time_cdist!, joint_fpt_cdist!, division_dist_hist!, division_time_dist, division_time_dist_hist, compute_growth_factor
 export birth_dist_hist!
 #export ThinningSampler, sample_first_arrival!
 export CellState, CellSimulationResults, CellSimulationParameters, CellSimulationProblem

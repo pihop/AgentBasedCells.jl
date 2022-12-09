@@ -1,9 +1,8 @@
 abstract type AbstractAnalyticalMethod end 
 
-struct ToxicBoundaryUpper <: AbstractAnalyticalMethod end
-struct ToxicBoundaryLower <: AbstractAnalyticalMethod end
+struct ToxicBoundaryDeath <: AbstractAnalyticalMethod end
+struct ToxicBoundaryRe <: AbstractAnalyticalMethod end
 struct Reinsert <: AbstractAnalyticalMethod end
-
 
 struct AnalyticalProblem
     model::AbstractPopulationModel
@@ -23,13 +22,13 @@ struct AnalyticalSolver
     bracket::Tuple{Float64, Float64}
 
     function AnalyticalSolver(maxiters; 
-            solver=AutoTsit5(Rosenbrock23(autodiff=false)), 
-            rootfinder=Order1(), 
-            stol=1e-3, 
+            solver=AutoTsit5(Rodas4P(autodiff=false)), 
+            rootfinder=Order2(), 
+            stol=1e-5, 
             rtol=1e-12, 
             atol=1e-12, 
             bracket=(0.0, 1000.0),
-            method=ToxicBoundaryLower())
+            method=ToxicBoundaryDeath())
 
         new(method,maxiters, solver, stol, rtol, atol, rootfinder, bracket)
     end
@@ -38,7 +37,7 @@ end
 mutable struct ConvergenceMonitor
     # TODO: Monitor convergence of the results. Here we want within the
     # iteration. Error control wrt truncation separately.
-    birth_dists::Array{Union{Matrix{Float64}, Vector{Float64}}}
+    birth_dists#::Array{Union{Matrix{Float64}, Vector{Float64}}}
     growth_factor::Array{Float64}
 
     function ConvergenceMonitor(birth_dist, lambda)
@@ -204,66 +203,9 @@ function update_growth_factor!(problem::AnalyticalProblem, model::MotherCellMode
     results.results[:growth_factor] = 0.0 
 end
 
-function update_growth_factor!(problem::AnalyticalProblem, model::CellPopulationModel, results::AnalyticalResults, method::Reinsert)
-     solver = results.solver
-
-    # Find marginal first passage time ν(t). This is normalised by
-    # definition -- in the code up to numerical accuracy. 
-    marginalfpt(u) = sum(
-        first_passage_time(
-            results.results[:birth_dist], 
-            u, 
-            problem.ps, 
-            results.cmesol; 
-            model=problem.model,
-            approx=problem.approx))
-
-    function integrand(u,p)
-        return exp(-p*u)*marginalfpt(u)
-    end
-
-    prob = IntegralProblem(integrand, problem.tspan[1], problem.tspan[end], 0.0)
-    f(λ) = 1 - 2*solve(remake(prob, p=λ), QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u
-    try 
-        results.results[:growth_factor] = find_zero(f, 0, solver.rootfinder; atol=solver.atol, rtol=solver.rtol)
-    catch
-        @warn "Root finding failed. Terminating without solution"
-        results.flag = :failed
-    end
-   
-end
-
-function update_growth_factor!(problem::AnalyticalProblem,  model::CellPopulationModel, results::AnalyticalResults, method::ToxicBoundaryLower;)
+function update_growth_factor!(problem::AnalyticalProblem, 
+        model::CellPopulationModel, results::AnalyticalResults, method::ToxicBoundaryRe)
     solver = results.solver
-
-    # Find marginal first passage time ν(t). This is normalised by
-    # definition -- in the code up to numerical accuracy. 
-    marginalfpt(u) = sum(
-        first_passage_time(
-            results.results[:birth_dist], 
-            u, 
-            problem.ps, 
-            results.cmesol; 
-            model=problem.model,
-            approx=problem.approx))
-
-    function integrand(u,p)
-        return exp(-p*u)*marginalfpt(u)
-    end
-
-    prob = IntegralProblem(integrand, problem.tspan[1], problem.tspan[end], 0.0)
-    f(λ) = 1 - 2*solve(remake(prob, p=λ), QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u
-    try 
-        results.results[:growth_factor] = find_zero(f, 0, solver.rootfinder; atol=solver.atol, rtol=solver.rtol)
-    catch
-        @warn "Root finding failed. Terminating without solution"
-        results.flag = :failed
-    end
-end
-
-function update_growth_factor!(problem::AnalyticalProblem, model::CellPopulationModel, results::AnalyticalResults, method::ToxicBoundaryUpper;)
-    solver = results.solver
-
     # Find marginal first passage time ν(t). This is normalised by
     # definition -- in the code up to numerical accuracy. 
     marginalfpt(τ) = sum(
@@ -275,60 +217,125 @@ function update_growth_factor!(problem::AnalyticalProblem, model::CellPopulation
             model=problem.model,
             approx=problem.approx))
 
+    correction(λ) = error(λ, results.cmesol, results, problem.approx)
 
-    correction(p) = error(p, results, problem.approx)
-
-    function integrand(u,p)
-        return marginalfpt(u) + correction(p)
-    end
-
-    function integrand_err(u,p)
-        return exp(-p*u)*correction(p)
+    function integrand(τ,p)
+        return 2*exp(-p*τ)*marginalfpt(τ)
     end
 
     prob = IntegralProblem(integrand, problem.tspan[1], problem.tspan[end], 0.0)
-    prob_err = IntegralProblem(integrand_err, problem.tspan[1], problem.tspan[end], 0.0)
-    f(λ) = sum(results.results[:birth_dist]) - 
-        2*solve(remake(prob, p=λ), QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u
+    f(λ) = 1 - solve(remake(prob, p=λ), QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u - correction(λ)
+
     try 
-        results.results[:growth_factor] = find_zero(f, 1, solver.rootfinder; atol=solver.atol, rtol=solver.rtol)
-        push!(results.results[:errors], 
-            solve(remake(prob_err, p=results.results[:growth_factor]), QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u)
+        results.results[:growth_factor] = find_zero(f, 0, solver.rootfinder; atol=solver.atol, rtol=solver.rtol)
+        push!(results.results[:errors], correction(results.results[:growth_factor]))
     catch
         @warn "Root finding failed. Terminating without solution"
         results.flag = :failed
     end
 end
 
-function update_birth_dist!(problem::AnalyticalProblem, results::AnalyticalResults, method::ToxicBoundaryLower)
+function compute_growth_factor(birth_dist, problem::AnalyticalProblem, 
+        model::CellPopulationModel, results::AnalyticalResults, method::ToxicBoundaryRe) 
     solver = results.solver
 
-    # Calculated new boundary condition given λ and CMEsol (Π(x|τ)).
-    boundary_cond_integrand = boundary_condition(problem, results, problem.approx, problem.model)
-    prob = IntegralProblem(boundary_cond_integrand, problem.tspan[1], problem.tspan[end])
-    results.results[:birth_dist] = solve(prob, QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u
+    cme = cmemodel(birth_dist, problem.ps, problem.tspan, problem.model, problem.approx)
+    cmesol = solve(cme, solver.solver; callback=PositiveDomain(), abstol=solver.atol, reltol=solver.rtol) 
+
+    solver = results.solver
+    # Find marginal first passage time ν(t). This is normalised by
+    # definition -- in the code up to numerical accuracy. 
+    marginalfpt(τ) = sum(
+        first_passage_time(
+            birth_dist, 
+            τ, 
+            problem.ps, 
+            cmesol; 
+            model=problem.model,
+            approx=problem.approx))
+
+    correction(λ) = error(λ, cmesol, results, problem.approx)
+
+    function integrand(τ,p)
+        return 2*exp(-p*τ)*marginalfpt(τ)
+    end
+
+    prob = IntegralProblem(integrand, problem.tspan[1], problem.tspan[end], 0.0)
+    f(λ) = 1 - solve(remake(prob, p=λ), QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u - correction(λ)
+
+    return find_zero(f, 0, solver.rootfinder; atol=solver.atol, rtol=solver.rtol)
 end
 
-function update_birth_dist!(problem::AnalyticalProblem, results::AnalyticalResults, method::ToxicBoundaryUpper)
+function compute_growth_factor(birth_dist, problem::AnalyticalProblem, 
+        model::CellPopulationModel, results::AnalyticalResults, method::Reinsert) 
     solver = results.solver
 
-    # Calculated new boundary condition given λ and CMEsol (Π(x|τ)).
-    boundary_cond_integrand = boundary_condition(problem, results, problem.approx, problem.model)
-    prob = IntegralProblem(boundary_cond_integrand, problem.tspan[1], problem.tspan[end])
-    results.results[:birth_dist] = solve(prob, QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u
-#    results.results[:birth_dist_non_norm] = results.results[:birth_dist]
-    results.results[:birth_dist] = results.results[:birth_dist] ./ sum(results.results[:birth_dist])
+    cme = cmemodel(birth_dist, problem.ps, problem.tspan, problem.model, problem.approx)
+    cmesol = solve(cme, solver.solver; callback=PositiveDomain(), abstol=solver.atol, reltol=solver.rtol) 
+
+    solver = results.solver
+    # Find marginal first passage time ν(t). This is normalised by
+    # definition -- in the code up to numerical accuracy. 
+    marginalfpt(τ) = sum(
+        first_passage_time(
+            birth_dist, 
+            τ, 
+            problem.ps, 
+            cmesol; 
+            model=problem.model,
+            approx=problem.approx))
+
+    correction(λ) = error(λ, cmesol, results, problem.approx)
+
+    function integrand(τ,p)
+        return 2*exp(-p*τ)*marginalfpt(τ)
+    end
+
+    prob = IntegralProblem(integrand, problem.tspan[1], problem.tspan[end], 0.0)
+    f(λ) = 1 - solve(remake(prob, p=λ), QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u - 2*correction(λ)
+
+    return find_zero(f, 0, solver.rootfinder; atol=solver.atol, rtol=solver.rtol)
 end
 
-function update_birth_dist!(problem::AnalyticalProblem, results::AnalyticalResults, method::Reinsert)
-    solver = results.solver
 
+function update_growth_factor!(problem::AnalyticalProblem, 
+        model::CellPopulationModel, results::AnalyticalResults, method::Union{Reinsert, ToxicBoundaryDeath})
+    solver = results.solver
+    # Find marginal first passage time ν(t). This is normalised by
+    # definition -- in the code up to numerical accuracy. 
+    marginalfpt(τ) = sum(
+        first_passage_time(
+            results.results[:birth_dist], 
+            τ, 
+            problem.ps, 
+            results.cmesol; 
+            model=problem.model,
+            approx=problem.approx))
+
+    correction(λ) = error(λ, results.cmesol, results, problem.approx)
+
+    function integrand(τ,p)
+        return 2*exp(-p*τ)*marginalfpt(τ)
+    end
+
+    prob = IntegralProblem(integrand, problem.tspan[1], problem.tspan[end], 0.0)
+    f(λ) = 1 - solve(remake(prob, p=λ), QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u - 2*correction(λ)
+
+    try 
+        results.results[:growth_factor] = find_zero(f, 0, solver.rootfinder; atol=solver.atol, rtol=solver.rtol)
+        push!(results.results[:errors], correction(results.results[:growth_factor]))
+    catch
+        @warn "Root finding failed. Terminating without solution"
+        results.flag = :failed
+    end
+end
+
+function update_birth_dist!(problem::AnalyticalProblem, results::AnalyticalResults, method)
+    solver = results.solver
     # Calculated new boundary condition given λ and CMEsol (Π(x|τ)).
-    boundary_cond_integrand = boundary_condition_alt(problem, results, problem.approx, problem.model)
+    boundary_cond_integrand = boundary_condition(problem, results, problem.approx, problem.model, method)
     prob = IntegralProblem(boundary_cond_integrand, problem.tspan[1], problem.tspan[end])
     results.results[:birth_dist] = solve(prob, QuadGKJL(); reltol=solver.rtol, abstol=solver.atol).u
-#    results.results[:birth_dist_non_norm] = results.results[:birth_dist]
-#    results.results[:birth_dist] = results.results[:birth_dist] ./ sum(results.results[:birth_dist])
 end
 
 function log_convergece!(convergence::ConvergenceMonitor, results::AnalyticalResults)
@@ -338,9 +345,7 @@ end
 
 function random_initial_values(approximation::AbstractAnalyticalApprox)
     truncation = approximation.truncation
-    #truncation = prod(approximation.truncation)
     # Random normalised initial conditions.
-#    init = rand(1:truncation, truncation) 
     init = rand(truncation...)
     return  init ./ sum(init)
 end
@@ -366,10 +371,9 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
      
     while i < solver.maxiters && changed+changeλ > solver.stol
         # Solve the CME Π(x|τ).
-        #cme = remake(cme; u0=vcat(results.results[:birth_dist], 0., 1.0))
         cme = remake(cme; u0=results.results[:birth_dist])
         try
-            results.cmesol = solve(cme, solver.solver; callback=PositiveDomain(), abstol=solver.atol) 
+            results.cmesol = solve(cme, solver.solver; callback=PositiveDomain(), abstol=solver.atol, reltol=solver.rtol) 
         catch
             @warn "CME solution failed. Terminating without solution"
             results.flag = :failed

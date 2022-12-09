@@ -14,7 +14,6 @@ function run_analytical_single(model, exp::T; kwargs...) where T <: AbstractExpe
     approx = FiniteStateApprox(exp.truncation)
     problem = AnalyticalProblem(model, exp.ps, exp.analytical_tspan, approx) 
     solver = AnalyticalSolver(exp.iters; kwargs...)
-
     return solvecme(problem, solver)
 end
 
@@ -22,7 +21,6 @@ function run_analyticalerr_single(model, exp::T; kwargs...) where T <: AbstractE
     approx = FiniteStateApprox(exp.truncation)
     problem = AnalyticalProblem(model, exp.ps, exp.analytical_tspan, approx) 
     solver = AnalyticalSolver(exp.iters; kwargs...)
-
     return solvecmeerror(problem, solver)
 end
 
