@@ -6,6 +6,7 @@ using LinearAlgebra
 using RuntimeGeneratedFunctions
 
 using DiffEqBase
+using SciMLBase
 using JumpProcesses
 using OrdinaryDiffEq
 using Sundials
@@ -29,6 +30,9 @@ using Roots
 using StaticArrays
 using PreallocationTools
 
+using FunctionWrappers
+import FunctionWrappers: FunctionWrapper
+
 abstract type NonHomogeneousSampling end
 abstract type AbstractSimulationProblem end
 abstract type AbstractPartitionKernel end
@@ -36,8 +40,11 @@ abstract type AbstractExperimentSetup end
 abstract type AbstractPopulationModel end
 abstract type AbstractAnalyticalApprox end
 
+include("cellstate.jl")
+export CellState
+
 include("partition_kernels.jl")
-export BinomialKernel 
+export BinomialKernel, BinomialWithDuplicate
 
 include("model.jl")
 export CellPopulationModel, MotherCellModel, DivisionRateMonotonicInc, DivisionRateBounded
@@ -73,12 +80,13 @@ export AbstractExperimentSetup, run_analytical, run_analytical_single, run_analy
 
 export AnalyticalModel, AnalyticalResults, AnalyticalSolverParameters
 export marginal_size_distribution!, mean_marginal_size
-export growth_factor, division_dist!, interdivision_time_dist, division_time_cdist!, joint_fpt_cdist!, division_dist_hist!, division_time_dist, division_time_dist_hist, compute_growth_factor
+export growth_factor, division_dist!, interdivision_time_dist, division_time_cdist!, joint_fpt_cdist!, division_dist_hist!, division_time_dist, division_time_dist_hist, compute_growth_factor, fpt_dist
 export birth_dist_hist!
 #export ThinningSampler, sample_first_arrival!
-export CellState, CellSimulationResults, CellSimulationParameters, CellSimulationProblem
+export CellSimulationResults, CellSimulationParameters, CellSimulationProblem
 export cellsize, final_cell_sizes
 export simulate_population, simulate_population_slow
+export cell_division_age
 #export solvecme
 #export gen_division_rate_function
 

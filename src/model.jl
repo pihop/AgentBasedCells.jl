@@ -5,12 +5,13 @@ struct DivisionRateMonotonicInc <: AbstractDivisionRate
     ratef::Function
     function DivisionRateMonotonicInc(γ, rn)
         ratef = gen_division_rate_function(γ, rn)  
+        display(ratef)
         return new(γ, ratef)
     end
 end
 
-function divisionrate(u,p,t,rate::DivisionRateMonotonicInc)
-    return rate.ratef.(u,Ref(p),Ref(t))
+@inline function divisionrate(u,p,t,rate::DivisionRateMonotonicInc)
+    return [rate.ratef(u_,p,t) for u_ in u]
 end
 
 function get_λmax(rate::DivisionRateMonotonicInc, traj, tspan, ps)
@@ -29,8 +30,8 @@ struct DivisionRateBounded <: AbstractDivisionRate
     end
 end
 
-function divisionrate(u,p,t,rate::DivisionRateBounded)
-    return rate.ratef.(u,Ref(p),Ref(t))
+function divisionrate(u,p,t,dest,rate::DivisionRateBounded)
+    map!(x -> rate.ratef(x,p,t), dest, u)
 end
 
 function divisionratebnd(u,p,t,rate::DivisionRateBounded)

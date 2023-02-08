@@ -27,7 +27,7 @@ function sample_first_arrival!(sampler::ThinningSampler)
             return nothing
         elseif sampler.λ(sampler.proposet) / sampler.λmax > 1.0
             throw(BadRateBound) 
-        elseif (U ≤ sampler.λ(sampler.proposet) / sampler.λmax) || sampler.λmax == Inf
+        elseif (U ≤ sampler.λ(sampler.proposet) / sampler.λmax) 
             return sampler.proposet
         end
     end
