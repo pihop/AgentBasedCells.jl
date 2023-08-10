@@ -1,14 +1,13 @@
-struct FiniteStateApprox <: AbstractAnalyticalApprox
-    truncation::Vector{Int64}
-    problem
-    A::SparseMatrixCSC
+struct FiniteStateApprox{N} <: AbstractAnalyticalApprox
+    truncation::NTuple{N, Int64}
+    A
     boundary
     partition
-    states
     divr
     fpt
     function FiniteStateApprox(truncation, model, ps)
         fsp_problem = FSPSystem(model.molecular_model)
+
         A = convert(SparseMatrixCSC, fsp_problem, tuple(truncation...), ps, 0)
         # Assuming no mass enters is added to the system the boundary states
         # correspond to where the columns of A are negative.
@@ -25,89 +24,114 @@ struct FiniteStateApprox <: AbstractAnalyticalApprox
         FPTWrapper = FunctionWrappers.FunctionWrapper{Any, Tuple{Any, Any, Any, Any}}
         fpt = FPTWrapper((u,t,cmesol,ratepre) -> first_passage_time(u, t, ps, cmesol, ratepre; divr=divr))
 
-        BoundaryConditionWrapper = FunctionWrappers.FunctionWrapper{Any, Tuple{Any, Any}}
-
-        return new(truncation, fsp_problem, A, bndA, Ms, states, divr, fpt)
+        return new{length(truncation)}(truncation, A, bndA, Ms, divr, fpt)
     end
 end
 
 function cmemodel(
         xinit,
-        parameters::Vector{Float64},
+        parameters::NTuple{N, Float64},
         tspan::Tuple{Float64, Float64},
         model::AbstractPopulationModel,
-        approx::FiniteStateApprox)
+        approx::FiniteStateApprox) where {N} 
 
-    Axu = similar(vec(xinit))
-    divy = similar(xinit) 
+    function fu!(dx, x, (p, Axu, divy), τ)
+        Axu = get_tmp(Axu, first(x)*τ)
+        divy = get_tmp(divy, first(x)*τ)
 
-    function fu!(dx, x, p, τ)
         approx.divr(τ, divy)
         mul!(Axu, approx.A, vec(x))
         dx .= reshape(Axu, size(xinit)) .- divy .* x
     end
     
-    return ODEProblem(fu!, xinit, tspan, parameters)
+    prob = ODEProblem(fu!, xinit, tspan, 
+        (parameters, 
+         PreallocationTools.dualcache(similar(vec(xinit))), 
+         PreallocationTools.dualcache(similar(xinit))))
+    return prob
 end
 
 function jointmodel(
-        λ::Float64,
         xinit,
-        parameters::Vector{Float64},
+        λ::Float64,
+        parameters::NTuple{N, Float64},
         tspan::Tuple{Float64, Float64},
         model::AbstractPopulationModel,
-        approx::FiniteStateApprox)
+        approx::FiniteStateApprox) where {N}
 
-    Axu = similar(vec(xinit))
-    divy = similar(vec(xinit)) 
+    function fu!(dx, x, (p, Axu, divy), τ)
+        Axu = get_tmp(Axu, first(x)*τ)
+        divy = get_tmp(divy, first(x)*τ)
 
-    function fu!(dx, x, p, τ)
-        mul!(Axu, approx.A, vec(x))
         approx.divr(τ, divy)
+        mul!(Axu, approx.A, vec(x))
         dx .= reshape(Axu, size(xinit)) .- divy .* x - λ .* x
     end
     
-    return ODEProblem(fu!, xinit, tspan, parameters)
+    prob = ODEProblem(fu!, xinit, tspan, 
+        (parameters, 
+         PreallocationTools.dualcache(similar(vec(xinit))), 
+         PreallocationTools.dualcache(similar(xinit))))
+    return prob
 end
 
-function jointinit(
-    results,
-    model::CellPopulationModel)
+function backwardjointmodel(
+    xinit,
+    λ::Float64,
+    parameters::NTuple{N, Float64},
+    tspan::Tuple{Float64, Float64},
+    model::AbstractPopulationModel,
+    approx::FiniteStateApprox) where {N}
+
+    function fu!(dx, x, (p, xuA, divy), τ)
+        xuA = get_tmp(xuA, first(x)*τ)
+        divy = get_tmp(divy, first(x)*τ)
+
+        mul!(xuA', vec(x)', approx.A)
+        approx.divr(tspan[end] - τ, divy)
+        dx .= reshape(xuA', size(xinit)) .- divy .* x - λ .* x
+    end
+
+    prob = ODEProblem(fu!, xinit, tspan, 
+        (parameters, 
+         PreallocationTools.dualcache(similar(vec(xinit))), 
+         PreallocationTools.dualcache(similar(xinit))))
+    return prob
+end
+
+
+function jointinit(results, ::CellPopulationModel)
     return (2 * results.results[:growth_factor]) .* results.results[:birth_dist]
 end
 
-function jointinit(
-    results,
-    model::MotherCellModel)
+function jointinit(results, ::MotherCellModel)
     solver = results.solver
-
-    integrand(u,p) = division_time_dist(results)(u)
-    prob(s) = IntegralProblem(integrand, s, results.problem.tspan[end], 0.0)
-    normal_integrand(u,p) = solve(prob(u), solver.integrator; reltol=solver.rtol, abstol=solver.atol).u
-    prob_normal = IntegralProblem(normal_integrand, 0, results.problem.tspan[end], 0.0)
-    normal = solve(prob_normal, solver.integrator; reltol=solver.rtol, abstol=solver.atol).u
-
-    return results.results[:birth_dist] ./ normal
+    return results.results[:birth_dist]# ./ normal
 end
 
 function error(results, approx::FiniteStateApprox)
     problem = results.problem
-    model = results.problem.model
 
-    function ferr!(du, u, p, t)
-        du[1] = approx.boundary' * vec(p[3](t)) * exp(-p[1]*t)
+    m = 1
+    if typeof(results.problem.model) == MotherCellModel
+        m = 0
     end
 
-    return ODEProblem(ferr!, [0.0,], problem.tspan, [0.0,]) 
+    function ferr!(du, u, p, t)
+        du[1] = approx.boundary' * vec(p[3](t)) * 2^m * exp(-p[1]*t)
+        du[2] = approx.boundary' * vec(p[3](t)) 
+    end
+
+    return ODEProblem(ferr!, [0.0, 0.0], problem.tspan, [0.0,]) 
 end
 
 function first_passage_time(
         x,
         τ::Float64, 
-        p::Vector{Float64}, 
+        p::NTuple{N, Float64}, 
         Π,
         ratepre; 
-        divr)
+        divr) where {N}
     # TODO: in general need to pass in also the reaction network to see which
     # indices correspond to which counts. 
     # First passage time for division.
@@ -115,63 +139,33 @@ function first_passage_time(
     return ratepre .* Π(τ)
 end
 
-function boundary_condition_ancest(problem, results, approx::FiniteStateApprox, model::CellPopulationModel)
+function boundary_condition_ancest(problem, results, approx::FiniteStateApprox, ::Union{CellPopulationModel, MotherCellModel})
     problem = results.problem
-    return (τ,p) -> 
-        sum(approx.partition .* approx.fpt(results.results[:birth_dist], τ, results.cmesol)) +
-        reshape(vec(approx.partition[end]) .* approx.boundary' * vec(results.cmesol(τ)), tuple(problem.approx.truncation...))
+    return (τ, p) -> 
+    sum(approx.partition .* approx.fpt(p[2], τ, p[3], p[4])) +
+        reshape(vec(approx.partition[end]) .* approx.boundary' * vec(p[3](τ)), tuple(problem.approx.truncation...))
 end
 
-function boundary_condition(problem, results, approx::FiniteStateApprox, model::CellPopulationModel, method::ToxicBoundaryDeath)
-    # Assuming no mass enters is added to the system the boundary states
-    # correspond to where the columns of A are negative.
-    ratepre = similar(results.results[:birth_dist])
-    return (τ,p) -> 2*exp(-results.results[:growth_factor]*τ)*sum(approx.partition .* approx.fpt(results.results[:birth_dist], τ, results.cmesol, ratepre))
+function boundary_condition(problem, results, approx::FiniteStateApprox, ::CellPopulationModel, ::Reinsert)
+    problem = results.problem
+    Tmax = problem.tspan[end]
+    return (τ, p) -> 2*exp(-p[1]*τ)*(
+        sum(approx.partition .* approx.fpt(p[2], τ, p[3], p[4])) +
+        0.5 * reshape(vec(approx.partition[end]) .* approx.boundary' * vec(p[3](τ)), tuple(problem.approx.truncation...))) + 
+        1/Tmax*exp(-p[1]*Tmax)*reshape(vec(approx.partition[end]) .* vec(p[3](Tmax)), tuple(problem.approx.truncation...))
 end
 
-#function boundary_condition(problem, results, approx::FiniteStateApprox, model::CellPopulationModel, method::ToxicBoundaryRe)
-#    problem = results.problem
-#    fsp_problem = FSPSystem(model.molecular_model)
-#    A = convert(SparseMatrixCSC, fsp_problem, tuple(approx.truncation...), problem.ps, 0)
-#    # Assuming no mass enters is added to the system the boundary states
-#    # correspond to where the columns of A are negative.
-#    bndA = abs.(vec(sum(A, dims=1)))
-#
-#    axes_ = collect.(axes(results.results[:birth_dist]))
-#    states = collect(Iterators.product(axes_...)) 
-#    Ms = partition.(problem.model.partition_kernel, states, approx.truncation)
-#
-#
-#    fpt(τ) = first_passage_time(results.results[:birth_dist], 
-#            τ, 
-#            problem.ps, 
-#            results.cmesol; 
-#            model=problem.model,
-#            approx=problem.approx)
-#
-#    return (τ,p) -> 2*exp(-results.results[:growth_factor]*τ)*(
-#                sum(Ms .* fpt(τ)) +
-#                reshape(0.5 .* vec(Ms[end]) .* bndA' * vec(results.cmesol(τ)), tuple(problem.approx.truncation...)))
-#end
-
-#function boundary_condition(problem, results, approx::FiniteStateApprox, model::CellPopulationModel, method::Reinsert)
-#    problem = results.problem
-#    ratepre = similar(results.results[:birth_dist])
-#    return (τ,p) -> 2*exp(-results.results[:growth_factor]*τ)*(
-#               sum(approx.partition .* approx.fpt(results.results[:birth_dist], τ, results.cmesol, ratepre)) +
-#               reshape(vec(approx.partition[end]) .* problem.approx.boundary' * vec(results.cmesol(τ)), tuple(problem.approx.truncation...)))
-#end
-
-function boundary_condition(problem, results, approx::FiniteStateApprox, model::CellPopulationModel, method::Reinsert)
+function boundary_condition(problem, results, approx::FiniteStateApprox, ::CellPopulationModel, ::Divide)
     problem = results.problem
     return (τ, p) -> 2*exp(-p[1]*τ)*(
         sum(approx.partition .* approx.fpt(p[2], τ, p[3], p[4])) +
-        reshape(vec(approx.partition[end]) .* problem.approx.boundary' * vec(p[3](τ)), tuple(problem.approx.truncation...)))
+        reshape(vec(approx.partition[end]) .* approx.boundary' * vec(p[3](τ)), tuple(problem.approx.truncation...)))
 end
 
-
-function boundary_condition(problem, results, approx::FiniteStateApprox, model::MotherCellModel, method::Reinsert)
+function boundary_condition(problem, results, approx::FiniteStateApprox, ::MotherCellModel, ::Reinsert)
     problem = results.problem
+    Tmax = problem.tspan[end]
     return (τ, p) -> sum(approx.partition .* approx.fpt(p[2], τ, p[3], p[4])) +
-        reshape(vec(approx.partition[end]) .* problem.approx.boundary' * vec(p[3](τ)), tuple(problem.approx.truncation...))
+        reshape(vec(approx.partition[end]) .* approx.boundary' * vec(p[3](τ)), tuple(problem.approx.truncation...)) + 
+        1/Tmax * reshape(vec(approx.partition[end]) .* sum(vec(p[3](Tmax))), tuple(problem.approx.truncation...))
 end

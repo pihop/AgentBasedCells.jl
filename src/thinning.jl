@@ -15,10 +15,11 @@ end
 
 function propose_next!(sampler::ThinningSampler)
     U = rand(Uniform())
-    sampler.proposet = sampler.tspan[1] - 1.0/sampler.λmax * log(U) 
+    sampler.proposet = sampler.proposet - 1.0/sampler.λmax * log(U) 
 end
 
 function sample_first_arrival!(sampler::ThinningSampler)
+    sampler.proposet = sampler.tspan[1]
     while true
         propose_next!(sampler)
         U = rand(Uniform())

@@ -15,7 +15,7 @@ function _partition(kernel::BinomialKernel, x, truncation)
     return PaddedView(0.0, out_, tuple(truncation...))
 end
 
-function partition_cell(kernel::BinomialKernel, cell::CellState, birth_time::Float64)
+function partition_cell(::Type{CellPopulationModel}, kernel::BinomialKernel, cell::CellState, birth_time::Float64)
     # Parition and return the Array of cells.    
     partition = [] 
     partition_ = [] 
@@ -28,6 +28,18 @@ function partition_cell(kernel::BinomialKernel, cell::CellState, birth_time::Flo
     return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), 
             CellState(partition_, 0.0, birth_time, partition_, 0.0, ThinningSampler())]
 end
+
+function partition_cell(::Type{MotherCellModel}, kernel::BinomialKernel, cell::CellState, birth_time::Float64)
+    # Parition and return the Array of cells.    
+    partition = [] 
+    for s in cell.state
+        molecule_number = rand(Binomial(Int(s), kernel.parameter))
+        push!(partition, molecule_number)
+    end
+
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), ]
+end
+
 
 
 partition(kernel::AbstractPartitionKernel, x::Int64, truncation::Int64) = _partition(kernel, x, truncation)
@@ -56,7 +68,7 @@ function _partition(kernel::BinomialWithDuplicate, x, truncation)
     return PaddedView(0.0, out_, tuple(truncation...))
 end
 
-function partition_cell(kernel::BinomialWithDuplicate, cell::CellState, birth_time::Float64)
+function partition_cell(::Type{CellPopulationModel}, kernel::BinomialWithDuplicate, cell::CellState, birth_time::Float64)
     # Parition and return the Array of cells.    
     partition = [] 
     partition_ = [] 
@@ -73,5 +85,57 @@ function partition_cell(kernel::BinomialWithDuplicate, cell::CellState, birth_ti
 
     return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), 
             CellState(partition_, 0.0, birth_time, partition_, 0.0, ThinningSampler())]
+end
+
+function partition_cell(::Type{MotherCellModel}, kernel::BinomialWithDuplicate, cell::CellState, birth_time::Float64)
+    # Parition and return the Array of cells.    
+    partition = [] 
+    for (i,s) in enumerate(cell.state)
+        if !in(i, kernel.idxs)
+            molecule_number = rand(Binomial(Int(s), kernel.parameter))
+            push!(partition, molecule_number)
+        else
+            push!(partition, s)
+        end
+    end
+
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), ]
+end
+
+struct ConcentrationKernel <: AbstractPartitionKernel
+end
+
+function _partition(kernel::ConcentrationKernel, x, truncation)
+    probs = []
+    for el in x
+        zs = zeros(Float64, el+1)
+        zs[end] = 1.0
+        push!(probs, zs) 
+    end
+    out_ = prod.(collect(Iterators.product(probs...)))
+    return PaddedView(0.0, out_, tuple(truncation...))
+end
+
+function partition_cell(::Type{CellPopulationModel}, kernel::ConcentrationKernel, cell::CellState, birth_time::Float64)
+    # Parition and return the Array of cells.    
+    partition = [] 
+    partition_ = [] 
+    for s in cell.state
+        push!(partition, s)
+        push!(partition_, s)
+    end
+
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), 
+            CellState(partition_, 0.0, birth_time, partition_, 0.0, ThinningSampler())]
+end
+
+function partition_cell(::Type{MotherCellModel}, kernel::ConcentrationKernel, cell::CellState, birth_time::Float64)
+    # Parition and return the Array of cells.    
+    partition = [] 
+    for s in cell.state
+        push!(partition, s)
+    end
+
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), ]
 end
 

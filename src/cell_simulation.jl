@@ -4,8 +4,8 @@ struct SimulationSolver
     max_pop::Int64
 end
 
-mutable struct CellSimulationProblem <: AbstractSimulationProblem 
-    model::CellPopulationModel
+mutable struct CellSimulationProblem{T} <: AbstractSimulationProblem 
+    model::T
     molecular_model::Union{JumpProcesses.JumpProblem, ODEProblem, SDEProblem}
     init::Vector{CellState}
     ps::Vector{Float64}
@@ -20,7 +20,7 @@ mutable struct CellSimulationProblem <: AbstractSimulationProblem
             Catalyst.parameters(model.molecular_model) .=> ps)
 
         jump = JumpProcesses.JumpProblem(model.molecular_model, discrete, Direct())
-        new(model, jump, init, ps, tspan)
+        new{typeof(model)}(model, jump, init, ps, tspan)
     end
 end 
 
@@ -43,8 +43,12 @@ mutable struct CellSimulationResults
             :molecules_at_division_all => [],
             :molecules_at_birth => [],
             :molecules_at_birth_all => [],
+            :all_population => [],
             :final_population => [],
-            :final_population_traj => [])
+            :final_population_traj => [],
+            :trajectories => [],
+            :pop_size => []
+           )
 
         new(dict, model, solver)
     end
@@ -114,6 +118,12 @@ function log_results!(results, mother, daughters)
     push!(results.results[:division_times_all], (cell_division_time.(daughters) .- cell_birth_time.(daughters))...)
     push!(results.results[:molecules_at_birth_all], birth_molecule_state.(daughters)...)
     push!(results.results[:molecules_at_division_all], molecule_state.(daughters)...)
+    push!(results.results[:all_population], daughters...)
+    push!(results.results[:trajectories], mother)
+end
+
+function log_pop_size!(results, t, cell_population)
+    push!(results.results[:pop_size], (t, length(cell_population)))
 end
 
 function states_at_last_division!(problem, results, division_time, cell_population; jitt)
@@ -129,7 +139,7 @@ function states_at_last_division!(problem, results, division_time, cell_populati
     results.results[:final_population_traj] = cell_population
 end
 
-function simulate(problem::CellSimulationProblem, solver::SimulationSolver)
+function simulate(problem::CellSimulationProblem{T}, solver::SimulationSolver) where T <: Union{CellPopulationModel, MotherCellModel}
     # Progress monitor.
     t = problem.tspan[1]
     simulation_results = CellSimulationResults(problem, solver)
@@ -142,13 +152,21 @@ function simulate(problem::CellSimulationProblem, solver::SimulationSolver)
         apply_chemostat!(cell_population, solver.max_pop)
         next_division_time, cell_idx = findmin(cell_division_time.(cell_population))
 
-        daughter_cells = partition_cell(problem.model.partition_kernel, 
-            cell_population[cell_idx], next_division_time)
+        daughter_cells = partition_cell(
+            T,
+            problem.model.partition_kernel, 
+            cell_population[cell_idx], 
+            next_division_time)
+
         compute_division_times!(problem, solver, daughter_cells)
         log_results!(simulation_results, cell_population[cell_idx], daughter_cells)
 
         # Remove the mother cell and replace with daughters.
         deleteat!(cell_population, cell_idx)
+
+        if floor(t / solver.Δt) < floor(next_division_time / solver.Δt)
+            log_pop_size!(simulation_results, next_division_time, cell_population)
+        end
 
         push!(cell_population, daughter_cells...)
 

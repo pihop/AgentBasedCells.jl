@@ -55,3 +55,18 @@ end
 function cell_division_age(cell_state::CellState)
     return cell_state.division_time - cell_state.birth_time
 end
+
+function state_at_division(cell_state::CellState)
+    return cell_state.sim(cell_division_age(cell_state))
+end
+
+function state_at_times(cell_state::CellState, tstep)
+    maxt = cell_division_age(cell_state)
+    ts_ = 0.0:tstep:maxt
+
+    if mod(maxt, tstep) > 0.5 * tstep 
+        return [getindex.(cell_state.sim(vcat(ts_, maxt)).u, 1)..., cell_state.sim(maxt)[1]]
+    else
+        return getindex.(cell_state.sim(vcat(ts_, maxt)).u, 1)
+    end
+end
