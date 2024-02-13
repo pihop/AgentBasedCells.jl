@@ -1,11 +1,12 @@
 RuntimeGeneratedFunctions.init(@__MODULE__)
 
 function gen_division_rate_function(symb_rate, rn::ReactionSystem)
-    return build_function(
+    return Symbolics.build_function(
         symb_rate, 
         states(rn), 
         Catalyst.parameters(rn), 
         ModelingToolkit.get_iv(rn);
+        force_SA = true,
 #        conv = ModelingToolkit.states_to_sym(states(rn)),
         expression=Val{false})
 end

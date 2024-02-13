@@ -25,8 +25,8 @@ function partition_cell(::Type{CellPopulationModel}, kernel::BinomialKernel, cel
         push!(partition_, Int(s) - molecule_number)  
     end
 
-    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), 
-            CellState(partition_, 0.0, birth_time, partition_, 0.0, ThinningSampler())]
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, cell.idx, ThinningSampler()), 
+            CellState(partition_, 0.0, birth_time, partition_, 0.0, cell.idx, ThinningSampler())]
 end
 
 function partition_cell(::Type{MotherCellModel}, kernel::BinomialKernel, cell::CellState, birth_time::Float64)
@@ -37,7 +37,7 @@ function partition_cell(::Type{MotherCellModel}, kernel::BinomialKernel, cell::C
         push!(partition, molecule_number)
     end
 
-    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), ]
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, cell.idx, ThinningSampler()), ]
 end
 
 
@@ -83,8 +83,8 @@ function partition_cell(::Type{CellPopulationModel}, kernel::BinomialWithDuplica
         end
     end
 
-    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), 
-            CellState(partition_, 0.0, birth_time, partition_, 0.0, ThinningSampler())]
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, cell.idx, ThinningSampler()), 
+            CellState(partition_, 0.0, birth_time, partition_, 0.0, cell.idx, ThinningSampler())]
 end
 
 function partition_cell(::Type{MotherCellModel}, kernel::BinomialWithDuplicate, cell::CellState, birth_time::Float64)
@@ -99,7 +99,7 @@ function partition_cell(::Type{MotherCellModel}, kernel::BinomialWithDuplicate, 
         end
     end
 
-    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), ]
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, cell.idx, ThinningSampler()), ]
 end
 
 struct ConcentrationKernel <: AbstractPartitionKernel
@@ -125,8 +125,8 @@ function partition_cell(::Type{CellPopulationModel}, kernel::ConcentrationKernel
         push!(partition_, s)
     end
 
-    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), 
-            CellState(partition_, 0.0, birth_time, partition_, 0.0, ThinningSampler())]
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, cell.idx, ThinningSampler()), 
+            CellState(partition_, 0.0, birth_time, partition_, 0.0, cell.idx, ThinningSampler())]
 end
 
 function partition_cell(::Type{MotherCellModel}, kernel::ConcentrationKernel, cell::CellState, birth_time::Float64)
@@ -136,6 +136,6 @@ function partition_cell(::Type{MotherCellModel}, kernel::ConcentrationKernel, ce
         push!(partition, s)
     end
 
-    return [CellState(partition, 0.0, birth_time, partition, 0.0, ThinningSampler()), ]
+    return [CellState(partition, 0.0, birth_time, partition, 0.0, cell.idx, ThinningSampler()), ]
 end
 
