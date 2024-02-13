@@ -40,11 +40,6 @@ function sample_next_division(
     problem::AbstractSimulationProblem,
     sampler::ThinningSampler)
 
-    # Aim is to return the first jump time of NHPP with rate λ(t, f(t)) where
-    # f(t) is the CellTrajectory.
-    # How do we find λ such that λ ≥ λ(t, f(t)) for all t in general.
-    # f(t) in our case monotonic so just take the end point of tspan.
-
     sampler.λmax = get_λmax(problem.model.division_rate, cell_trajectory, tspan, problem.ps)
     sampler.λ = t -> problem.model.division_rate.ratef(cell_trajectory(t), problem.ps, t)
     sampler.tspan = tspan 
