@@ -137,6 +137,7 @@ function states_at_last_division!(problem, results, division_time, cell_populati
 #        push!(results.results[:final_population], sim.u[end])
 #    end
     results.results[:final_population_traj] = cell_population
+    push!(results.results[:trajectories], cell_population...)
 end
 
 function simulate(problem::CellSimulationProblem{T}, solver::SimulationSolver) where T <: Union{CellPopulationModel, MotherCellModel}
@@ -148,6 +149,7 @@ function simulate(problem::CellSimulationProblem{T}, solver::SimulationSolver) w
     cell_population = problem.init
     compute_division_times!(problem, solver, cell_population)
 
+    display(problem.tspan[end])
     while t < problem.tspan[end]
         apply_chemostat!(cell_population, solver.max_pop)
         next_division_time, cell_idx = findmin(cell_division_time.(cell_population))
