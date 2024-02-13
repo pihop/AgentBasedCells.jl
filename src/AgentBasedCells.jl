@@ -59,7 +59,6 @@ export ToxicBoundaryRe, ToxicBoundaryDeath, Reinsert, Divide
 
 using FiniteStateProjection
 using SparseArrays
-include("make_sparse_mat.jl")
 include("analytical_approximations.jl")
 export FiniteStateApprox 
 
