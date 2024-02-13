@@ -1,4 +1,4 @@
-module CellPopulationSimulations
+module AgentBasedCells
 
 using Base: @kwdef
 using ProgressMeter
