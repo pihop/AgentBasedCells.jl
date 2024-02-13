@@ -23,16 +23,18 @@ struct DivisionRateBounded <: AbstractDivisionRate
     ratef::Function
     ratemax::Function
     function DivisionRateBounded(γ, γmax, rn)
-#        display(γ)
-        ratef = gen_division_rate_function(γ, rn)  
-#        display(ratef)
+        ratef = gen_division_rate_function(γ, rn)
         ratemax = gen_division_rate_function(γmax, rn)  
         return new(γ, ratef, ratemax)
     end
 end
 
 function divisionrate(u,p,t,dest,rate::DivisionRateBounded)
-    map!(x -> rate.ratef(x,p,t), dest, u)
+    Threads.@threads for i in eachindex(dest)
+        @inbounds @fastmath begin
+            dest[i] = rate.ratef(u[i],p,t)
+        end
+    end
 end
 
 function divisionrate(u,p,t,rate::DivisionRateBounded)
