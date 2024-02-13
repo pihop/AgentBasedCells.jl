@@ -32,6 +32,7 @@ struct AnalyticalSolver
             solver=Rodas5(autodiff=false), 
             rootfinder=Order16(), 
             integrator=QuadGKJL(),
+#            integrator=QuadratureRule(FastGaussQuadrature.gausslegendre, n=100),
             stol=1e-4, 
             rtol=1e-12, 
             atol=1e-12, 
@@ -76,9 +77,12 @@ end
 
 function marginal_size_distribution!(results::AnalyticalResults; rtol=1e-6, atol=1e-6)
     solver = results.solver
+    
     integrand(u,p) = results.jointsol(u)
     prob = IntegralProblem(integrand, results.problem.tspan[1], results.problem.tspan[end], 0.0)
+
     results.results[:marginal_size] = solve(prob, solver.integrator; reltol=rtol, abstol=atol).u
+    results.results[:marginal_size][results.results[:marginal_size] .< 0.0] .= 0.0
     results.results[:marginal_size] = results.results[:marginal_size] ./ sum(results.results[:marginal_size])
 end
 
@@ -234,10 +238,9 @@ function update_growth_rate!(problem::AnalyticalProblem,
         method::Union{Reinsert, Divide, ToxicBoundaryDeath},
         euler_lotka)
     solver = results.solver
-
+    f(λ) = euler_lotka(λ, results.results[:birth_dist], results.cmesol)  
     try 
-        f(λ) = euler_lotka(λ, results.results[:birth_dist], results.cmesol)  
-        results.results[:growth_rate] = find_zero(f, 0, solver.rootfinder; atol=solver.atol, rtol=solver.rtol, xatol = solver.atol, xrtol = solver.rtol)
+        results.results[:growth_rate] = find_zero(f, 0.0, solver.rootfinder; atol=solver.atol, rtol=solver.rtol)
     catch 
         @warn "Root finding failed. Terminating without solution"
         results.flag = :Failed
@@ -276,7 +279,6 @@ function make_euler_lotka(problem::AnalyticalProblem,
         return 2*exp(-p[1]*τ)*sum(problem.approx.fpt(p[2], τ, results.cmesol, ratepre))
     end
 
-#    push!(results.results[:errors], error_prob)
     prob = IntegralProblem(integrand, problem.tspan[1], problem.tspan[end], 0.0)
     results.euler_lotka = (λ, bd, cmesol) -> 
         1 - 
@@ -284,7 +286,9 @@ function make_euler_lotka(problem::AnalyticalProblem,
         solve(remake(prob, p=(λ,bd,cmesol)), solver.integrator; reltol=solver.rtol, abstol=solver.atol).u - 
         correction(λ, bd, cmesol)[1]
 
-    error_(λ, bd, cmesol) = [sum(cmesol(problem.tspan[end]))*2*exp(-λ*problem.tspan[end]), sum(cmesol(problem.tspan[end]))] .+ correction(λ, bd, cmesol)
+    error_(λ, bd, cmesol) = [
+        sum(cmesol(problem.tspan[end])) * exp(-λ*problem.tspan[end]), 
+        sum(cmesol(problem.tspan[end]))] .+ correction(λ, bd, cmesol)
     results.error = error_
 end
 
@@ -295,10 +299,6 @@ function update_birth_dist!(problem::AnalyticalProblem, results::AnalyticalResul
     prob = IntegralProblem(boundary_cond, problem.tspan[1], problem.tspan[end], 
         (results.results[:growth_rate], results.results[:birth_dist], results.cmesol, ratepre))
     results.results[:birth_dist] = solve(prob, solver.integrator; reltol=solver.rtol, abstol=solver.atol).u
-
-#    display(exp(-results.results[:growth_rate] * results.cmesol.t[end])sum(results.cmesol.u[end]) + sum(results.results[:birth_dist]))
-#    display(sum(results.results[:birth_dist]))
-#    results.results[:birth_dist] = results.results[:birth_dist] ./ sum(results.results[:birth_dist])
 end
 
 function log_convergece!(convergence::ConvergenceMonitor, results::AnalyticalResults)
@@ -309,14 +309,14 @@ end
 
 function log_error!(problem::AnalyticalProblem, results::AnalyticalResults, error)
     err_ = error(results.results[:growth_rate], results.results[:birth_dist], results.cmesol)
-#    display(sum(results.cmesol(problem.tspan[end])))
     push!(results.results[:errors], err_)
 end
 
-function uniform_initial_dist(approximation::AbstractAnalyticalApprox)
+function initial_dist(approximation::AbstractAnalyticalApprox)
     truncation = approximation.truncation
-    # Random normalised initial conditions.
-    return fill(1/prod(truncation), tuple(truncation...)) 
+    zs = zeros(tuple(truncation...)) 
+    zs[1] = 1.0
+    return zs 
 end
 
 function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
@@ -325,9 +325,10 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
     results.problem = problem
     results.solver = solver
 
-    results.results[:birth_dist] = uniform_initial_dist(problem.approx)
+    results.results[:birth_dist] = initial_dist(problem.approx)
     results.results[:birth_dist_iters] = [results.results[:birth_dist], ]
     results.results[:errors] = [] 
+    results.results[:growth_rate] = Inf
     results.flag = :Success
     convergence = ConvergenceMonitor()
     convergence.monitor[:birth_dist] = [results.results[:birth_dist], ] 
@@ -341,7 +342,9 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
             results,
             results.problem.approx,
             results.problem.model,
-            results.solver.method)
+            results.solver.method,
+            results.solver.integrator)
+
 
     make_euler_lotka(problem, problem.model, results, solver.method)
 
@@ -354,7 +357,10 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
     while i < solver.maxiters && changed+changeλ > solver.stol
         # Solve the CME Π(x|τ).
         cme = remake(cme; u0=results.results[:birth_dist])
-        results.cmesol = solve(cme, solver.solver; isoutofdomain=(y,p,t)->any(x->x<0,y), abstol=solver.atol, reltol=solver.rtol) 
+        
+#        results.cmesol = solve(cme, solver.solver; isoutofdomain=(y,p,t)->any(x->x<0,y), abstol=solver.atol, reltol=solver.rtol)
+        results.cmesol = solve(cme, solver.solver; abstol=solver.atol, reltol=solver.rtol)
+
         update_growth_rate!(problem, problem.model, results, solver.method, results.euler_lotka)
 
         if results.flag == :Success && SciMLBase.successful_retcode(results.cmesol)
@@ -384,10 +390,15 @@ function solvecme(problem::AnalyticalProblem, solver::AnalyticalSolver)
 
     cme = remake(cme; u0=results.results[:birth_dist])
     if results.flag == :Success && solver.compute_joint
-        results.cmesol = solve(cme, solver.solver; isoutofdomain=(y,p,t)->any(x->x<0,y), abstol=solver.atol) 
+        compute_joint!(results)
     end
     results.results[:backwardjoint] = backwardjointmodel(
-        results.results[:birth_dist], results.results[:growth_rate], problem.ps, problem.tspan, problem.model, problem.approx)
+        results.results[:birth_dist], 
+        results.results[:growth_rate], 
+        problem.ps, 
+        problem.tspan, 
+        problem.model, 
+        problem.approx)
 
     results.convergence_monitor = convergence
     return results 
@@ -398,5 +409,6 @@ function compute_joint!(results::AnalyticalResults)
     problem = results.problem
     initjoint = jointinit(results, results.problem.model)
     jointcme = jointmodel(initjoint, results.results[:growth_rate], problem.ps, problem.tspan, problem.model, problem.approx) 
-    results.jointsol = solve(jointcme, solver.solver; isoutofdomain=(y,p,t)->any(x->x<0,y), abstol=solver.atol) 
+#    results.jointsol = solve(jointcme, solver.solver; isoutofdomain=(y,p,t)->any(x->x<0,y), abstol=solver.atol) 
+    results.jointsol = solve(jointcme, solver.solver; abstol=solver.atol) 
 end
