@@ -1,4 +1,4 @@
-module AgentBasedCells
+module AgentBasedFSP
 
 using Base: @kwdef
 using ProgressMeter

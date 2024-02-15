@@ -1,4 +1,4 @@
-name = "AgentBasedCells"
+name = "AgentBasedFSP"
 uuid = "2dbd9f51-f436-409b-ba40-734378588e97"
 authors = ["Paul Piho <paul.piho@gmail.com>"]
 version = "0.1.0"
