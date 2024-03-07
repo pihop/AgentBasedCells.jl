@@ -40,7 +40,7 @@ Broadcast.broadcasted(::typeof(run_analytical), model, exp;) =
 
 function run_simulation(model, exp::T) where T <: AbstractExperimentSetup
     init_pop = [
-        CellState(exp.init, 0.0, 0.0, exp.init, 0.0, 0, CellPopulationSimulations.ThinningSampler()) 
+        CellState(exp.init, 0.0, 0.0, exp.init, 0.0, 0, ThinningSampler()) 
         for i in 1:exp.Ninit]
 
     problem = CellSimulationProblem(model, init_pop, [exp.ps...], exp.simulation_tspan)  
